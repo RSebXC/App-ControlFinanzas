@@ -131,10 +131,31 @@ class UpgradeSmokeTest : Instrumentation() {
                 clickDescription(activity,"Mostrar montos")
                 click(activity,"Mis presupuestos")
                 check(allViews(activity.window.decorView).filterIsInstance<TextView>().any { it.text.toString().contains("Límites actuales aplicados") })
+                fun sendQuestion(value:String) {
+                    runOnMainSync {allViews(activity.window.decorView).filterIsInstance<EditText>().first().setText(value)}
+                    clickDescription(activity,"Consultar mis finanzas")
+                }
+                sendQuestion("Si ahorro Q500 al mes durante 2 meses y ya tengo Q1000")
+                check(allViews(activity.window.decorView).filterIsInstance<TextView>().any { it.text.toString().contains("tendrías Q2,000.00") })
+                sendQuestion("¿Y si son 3 meses?")
+                check(allViews(activity.window.decorView).filterIsInstance<TextView>().any { it.text.toString().contains("tendrías Q2,500.00") })
+                sendQuestion("Y si retiro Q200")
+                check(allViews(activity.window.decorView).filterIsInstance<TextView>().any { it.text.toString().contains("tendrías Q2,300.00") })
+                screenshot("savings")
+                clickDescription(activity,"Ocultar montos")
+                check(allViews(activity.window.decorView).none {it is SavingsProjectionView})
+                check(allViews(activity.window.decorView).filterIsInstance<TextView>().filter {it.text.toString().startsWith("Al terminar")}.none {Regex("Q[0-9]").containsMatchIn(it.text)})
+                clickDescription(activity,"Mostrar montos")
+                click(activity,"Limpiar conversación")
+                sendQuestion("Si ahorro Q500 al mes durante 2 meses")
+                check(allViews(activity.window.decorView).filterIsInstance<TextView>().any {it.text.toString().contains("¿Con cuánto ahorro inicial")})
+                sendQuestion("ya tengo Q1000")
+                for(months in 3..11)sendQuestion("Y si son $months meses")
+                check(allViews(activity.window.decorView).filterIsInstance<TextView>().any {it.text.toString().contains("11 meses, tendrías Q6,500.00")})
                 FinanceDb(ctx).use { db ->
                     check(FinanceDb.digest(db.exportJson()) == prefs.getString("snapshot", null)) { "UI navigation modified financial data" }
                 }
-                result.putString("stream", "PASS: complete database preserved; daily SQL aggregates, largest purchase, merchants, home, privacy, chart modes, period selector, donut, search, pending filter, accounts and assistant checked\n")
+                result.putString("stream", "PASS: complete database preserved; reports, search, assistant, savings scenarios, missing inputs, withdrawals, privacy and follow-up context beyond eight messages checked\n")
                 runOnMainSync { activity.finish() }
             }
             finish(Activity.RESULT_OK, result)

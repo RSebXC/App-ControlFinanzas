@@ -54,6 +54,7 @@ class MainActivity : Activity() {
     private var scrollToConversation = false
     private val assistantQuestions = mutableListOf<String>()
     private var assistantDraft = ""
+    private var savingsHistorySeed: SavingsPlanner.Draft? = null
     private val readModel by lazy { FinanceReadModel(db) }
     private var backCallback: OnBackInvokedCallback? = null
     private var selectedMonth = FinanceDb.ym()
@@ -138,6 +139,7 @@ class MainActivity : Activity() {
             chartLines = it.getBoolean("chartLines", true)
             assistantQuestions.addAll(it.getStringArrayList("questions").orEmpty().takeLast(8))
             assistantDraft = it.getString("assistantDraft", "")
+            savingsHistorySeed = SavingsPlanner.decode(it.getString("savingsHistorySeed", ""))
         }
         render()
     }
@@ -150,6 +152,7 @@ class MainActivity : Activity() {
         outState.putBoolean("chartLines", chartLines)
         outState.putStringArrayList("questions", ArrayList(assistantQuestions))
         outState.putString("assistantDraft", assistantDraft)
+        outState.putString("savingsHistorySeed", SavingsPlanner.encode(savingsHistorySeed))
         super.onSaveInstanceState(outState)
     }
     // The legacy overload is only reached below Android 13; Android 13+ uses the private flag.
@@ -1179,9 +1182,10 @@ class MainActivity : Activity() {
         pageBody.addView(metricPair(metric("Balance del mes",report.income-report.expenses,"chart",green),metric("Gasto neto",report.expenses,"up",red)))
         sectionTitle("Empieza por una pregunta")
         listOf(
-            listOf("Resumen del mes","Comparar meses"),
-            listOf("Mis presupuestos","Comercios principales"),
-            listOf("Pagos pendientes","Mayor compra")
+            listOf("Proyectar mis ahorros","Resumen del mes"),
+            listOf("Comparar meses","Mis presupuestos"),
+            listOf("Comercios principales","Mayor compra"),
+            listOf("Pagos pendientes","Por revisar")
         ).forEach { options ->
             val line=LinearLayout(this)
             options.forEachIndexed{i,label ->
@@ -1190,22 +1194,41 @@ class MainActivity : Activity() {
                 line.addView(action,LinearLayout.LayoutParams(0,-2,1f).apply{if(i==0)rightMargin=dp(8)})
             };pageBody.addView(line);pageBody.addView(gap(8))
         }
-        pageBody.addView(gap(4));pageBody.addView(actionTile("budget","Simular un ahorro","Explora un monto sin cambiar tus registros"){savingsSimulation()})
+        pageBody.addView(gap(4));pageBody.addView(actionTile("budget","Planear mis ahorros","Saldo inicial, aportes, retiros y plazo"){savingsSimulation()})
         pageBody.addView(gap(18))
         if(assistantQuestions.isEmpty()) {
             val intro=card();intro.addView(text("Puedo ayudarte a explorar",15f,true));intro.addView(gap(7))
-            intro.addView(text("• ¿Cuánto gasté en comida el mes pasado?\n• ¿Qué cambió en octubre?\n• ¿Dónde gasté más en 2026-09?\n• ¿Cuál fue mi mayor compra?",13f,false,muted))
+            intro.addView(text("• ¿Cuánto gasté en comida el mes pasado?\n• ¿Qué cambió en octubre?\n• ¿Dónde gasté más en 2026-09?\n• Si ahorro Q500 al mes por 2 meses y tengo Q1,000, ¿cuánto tendré?",13f,false,muted))
             pageBody.addView(intro)
         } else {
             sectionTitle("Tu conversación")
+            var savingsContext=savingsHistorySeed
             assistantQuestions.forEach { question ->
+                val savings=SavingsPlanner.interpret(question,savingsContext)
+                if(savings!=null)savingsContext=savings.draft
                 val bubble=card().apply {background=drawable(0xffe9f3f1.toInt(),18);setPadding(dp(16),dp(13),dp(16),dp(13))}
                 bubble.addView(text(question,14f,true));pageBody.addView(bubble)
                 val answer=card();val head=LinearLayout(this).apply{gravity=Gravity.CENTER_VERTICAL}
                 head.addView(iconBubble("spark",FinanceDesign.purple,0xfff0edfc.toInt(),32));head.addView(text("Asistente",12f,true,FinanceDesign.purple).apply{setPadding(dp(9),0,0,0)});answer.addView(head)
-                answer.addView(gap(12));answer.addView(text(analysisReply(question),14f));pageBody.addView(answer)
+                val reply=if(savings!=null)savingsReply(savings) else analysisReply(question)
+                val visibleReply=if(amountsHidden())reply.replace(Regex("Q\\s*\\d[\\d,.]*"),"Q ••••") else reply
+                answer.addView(gap(12));answer.addView(text(visibleReply,14f))
+                if(savings!=null && savings.error==null && savings.clarification==null) {
+                    val projection=SavingsPlanner.calculate(savings.draft)
+                    if(!amountsHidden()) {
+                        answer.addView(gap(14));answer.addView(text("Trayectoria del escenario · Q",12f,true,muted))
+                        answer.addView(SavingsProjectionView(this,projection),LinearLayout.LayoutParams(-1,dp(165)))
+                    }
+                    answer.addView(gap(12));answer.addView(miniButton("Ver desglose mes a mes") {
+                        val first=YearMonth.now().plusMonths(if(projection.plan.startsThisMonth)0 else 1)
+                        alert("Desglose de tu escenario",projection.rows.joinToString("\n\n") {
+                            "${monthLabel(first.plusMonths(it.number-1L).toString())}\nInicial ${money(it.opening)} + aporte ${money(it.contribution)} + extra ${money(it.extra)} − retiros ${money(it.withdrawal)} = ${money(it.closing)}"
+                        })
+                    })
+                }
+                pageBody.addView(answer)
             }
-            pageBody.addView(miniButton("Limpiar conversación"){assistantQuestions.clear();render(true)});pageBody.addView(gap(12))
+            pageBody.addView(miniButton("Limpiar conversación"){assistantQuestions.clear();savingsHistorySeed=null;assistantDraft="";render(true)});pageBody.addView(gap(12))
         }
         pageBody.addView(text("Asistente basado en reglas locales, sin IA externa. La conversación dura esta sesión.",11f,false,muted))
     }
@@ -1213,7 +1236,7 @@ class MainActivity : Activity() {
         gravity=Gravity.CENTER_VERTICAL;setPadding(dp(16),dp(10),dp(12),dp(10));setBackgroundColor(Color.WHITE)
         val question=edit("Pregunta por tus finanzas…",assistantDraft).apply {
             contentDescription="Escribe una pregunta para el asistente"
-            filters=arrayOf(android.text.InputFilter.LengthFilter(200))
+            filters=arrayOf(android.text.InputFilter.LengthFilter(500))
             background=drawable(bg,15);imeOptions=android.view.inputmethod.EditorInfo.IME_ACTION_SEND
             addTextChangedListener(object:TextWatcher {
                 override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int){}
@@ -1236,8 +1259,11 @@ class MainActivity : Activity() {
     }
     private fun askAssistant(question:String) {
         assistantDraft=""
-        assistantQuestions.add(question.take(200))
-        if(assistantQuestions.size>8)assistantQuestions.removeAt(0)
+        assistantQuestions.add(question.take(500))
+        if(assistantQuestions.size>8) {
+            val removed=assistantQuestions.removeAt(0)
+            SavingsPlanner.interpret(removed,savingsHistorySeed)?.let{savingsHistorySeed=it.draft}
+        }
         scrollToConversation=true;render()
     }
     private fun analysisReply(question:String):String {
@@ -1299,7 +1325,7 @@ class MainActivity : Activity() {
                 else "Distribución de gasto neto en $title:\n\n"+cats.take(5).joinToString("\n"){"• ${it.first}: ${money(it.second)}"}
             }
             q.contains("ahorr") ->
-                "El balance confirmado de $title es ${money(report.income-report.expenses)}: ingresos menos gastos netos.\n\nEs un cálculo de registros, no una cantidad garantizada para ahorrar. Usa Simular un ahorro para explorar un monto sin cambiar tus datos."
+                "El balance confirmado de $title es ${money(report.income-report.expenses)}: ingresos menos gastos netos.\n\nEs un cálculo de registros, no una cantidad garantizada para ahorrar. Abre Planear mis ahorros para definir ahorro inicial, aportes y meses sin modificar tus cuentas."
             else -> {
                 val largest=cats.firstOrNull{it.second>0}
                 "$title\n\nIngresos confirmados: ${money(report.income)}\nGastos netos: ${money(report.expenses)}\nBalance del mes: ${money(report.income-report.expenses)}\nDevoluciones: ${money(report.refunds)}"+
@@ -1308,15 +1334,70 @@ class MainActivity : Activity() {
         }
         return answer+pending
     }
+    private fun savingsReply(parsed:SavingsPlanner.Interpretation):String {
+        parsed.error?.let{return "$it\n\nNo calculé un resultado con esos datos. Puedes completar el formulario Planear mis ahorros."}
+        parsed.clarification?.let { question ->
+            val known=mutableListOf<String>()
+            parsed.draft.initial?.let{known+="Ahorro inicial: ${money(it)}"}
+            parsed.draft.monthly?.let{known+="Aporte mensual: ${money(it)}"}
+            parsed.draft.totalContribution?.let{known+="Aporte total: ${money(it)}"}
+            parsed.draft.months?.let{known+="Plazo: $it meses"}
+            return question+(if(known.isNotEmpty())"\n\nYa tengo estos datos:\n"+known.joinToString("\n") else "")
+        }
+        val result=SavingsPlanner.calculate(parsed.draft);val p=result.plan
+        val start=YearMonth.now().plusMonths(if(p.startsThisMonth)0 else 1)
+        val end=start.plusMonths(p.months!!-1L)
+        return buildString {
+            append("Al terminar ${p.months} ${if(p.months==1)"mes" else "meses"}, tendrías ${money(result.finalBalance)} en este escenario.\n\n")
+            append("Ahorro inicial: ${money(p.initial!!)}\n")
+            append(if(p.totalContribution!=null)"Aporte total a distribuir: ${money(p.totalContribution)}\n" else "Aporte por mes: ${money(p.monthly!!)}\n")
+            append("Extra único: ${money(p.extra)}\nRetiro único: ${money(p.withdrawal)}\nRetiro por mes: ${money(p.monthlyWithdrawal)}\n\n")
+            append("${money(p.initial)} + ${money(result.added)} de aportes − ${money(result.withdrawn)} de retiros = ${money(result.finalBalance)}.\n")
+            append("\nPrimer aporte: ${monthLabel(start.toString())}. Último: ${monthLabel(end.toString())}.")
+            p.goal?.let {
+                append("\n\nMeta: ${money(it)}. ")
+                append(if(result.goalGap==0L)"Se alcanzaría con estos supuestos." else "Faltarían ${money(result.goalGap!!)}.")
+                append("\nPara alcanzar la meta con un aporte mensual uniforme: ${money(result.requiredMonthly!!)} al mes, manteniendo los mismos extras y retiros.")
+            }
+            result.rows.firstOrNull{it.closing<0}?.let{append("\n\nEl escenario entra en negativo en el mes ${it.number}; haría falta cubrir ese faltante.")}
+            append("\n\nSupuestos: aportes al cierre de cada mes; extra y retiro único en el primer mes. Sin intereses, inflación ni ingresos o gastos no indicados. No cambia tus cuentas.")
+            if(p.totalContribution!=null)append(" El aporte total se reparte entre los meses; cualquier ajuste de centavos va al último mes.")
+            append("\n\nPuedes continuar: «y si son 3 meses», «mejor Q700 al mes» o «y si retiro Q200».")
+        }
+    }
     private fun savingsSimulation() {
-        val amount=edit("Monto que quieres apartar en Q",numeric=true)
-        AlertDialog.Builder(this).setTitle("Simular un ahorro")
-            .setMessage("Se calcula sobre el balance confirmado de ${monthLabel(selectedMonth)}. No modifica cuentas ni movimientos.")
-            .setView(block(amount)).setNegativeButton("Cancelar",null).setPositiveButton("Simular"){_,_->
-                val target=FinanceDb.parseAmount(amount.text.toString())
-                if(target==null||target<=0){toast("Escribe un monto mayor que cero");return@setPositiveButton}
-                val r=db.monthReport(selectedMonth);val balance=r.income-r.expenses
-                alert("Tu escenario","Balance confirmado: ${money(balance)}\nMonto a apartar: ${money(target)}\nResultado aritmético: ${money(balance-target)}\n\nEsto no verifica disponibilidad bancaria ni descuenta obligaciones futuras o movimientos pendientes. No se guardó ningún cambio.")
-            }.show()
+        val initial=edit("Ahorro actual Q (0 si empiezas de cero)",numeric=true)
+        val monthly=edit("Cuánto apartarás cada mes Q",numeric=true)
+        val months=edit("Plazo de 1 a 120 meses","2",true).apply{inputType=InputType.TYPE_CLASS_NUMBER}
+        val extra=edit("Aporte extra único Q (opcional)",numeric=true)
+        val withdrawal=edit("Retiro único Q (opcional)",numeric=true)
+        val monthlyWithdrawal=edit("Retiro mensual Q (opcional)",numeric=true)
+        val goal=edit("Meta de ahorro Q (opcional)",numeric=true)
+        val starts=dropdown(listOf("Primer aporte: este mes","Primer aporte: próximo mes")).apply{setSelection(1)}
+        val useAccount=miniButton("Elegir saldo de una cuenta") {
+            val accounts=db.accounts().mapNotNull { a->db.accountBalance(a)?.takeIf{it>=0}?.let{a to it} }
+            if(accounts.isEmpty())alert("Sin saldos configurados","Escribe el ahorro con el que quieres empezar. No se estimará a partir de movimientos incompletos.")
+            else AlertDialog.Builder(this).setTitle("Usar solo esta cuenta como ahorro inicial")
+                .setItems(accounts.map{"${it.first.name} · ${money(it.second)}"}.toTypedArray()){_,i->
+                    initial.setText(java.math.BigDecimal.valueOf(accounts[i].second,2).toPlainString())
+                }.setNegativeButton("Cancelar",null).show()
+        }
+        val form=block(text("Define tus supuestos",16f,true),text("Los campos opcionales vacíos valen cero. Extras y retiros únicos se aplican en el primer mes. No se modifica ningún saldo.",12f,false,muted),initial,useAccount,monthly,months,starts,extra,withdrawal,monthlyWithdrawal,goal)
+        val dialog=AlertDialog.Builder(this).setTitle("Planear mis ahorros").setView(form).setNegativeButton("Cancelar",null).setPositiveButton("Proyectar",null).create()
+        dialog.show()
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val initialValue=SavingsPlanner.parseAmount(initial.text.toString())
+            val monthlyValue=SavingsPlanner.parseAmount(monthly.text.toString())
+            val count=months.text.toString().toIntOrNull()
+            fun optional(field:EditText):Long?=if(field.text.isBlank())0 else SavingsPlanner.parseAmount(field.text.toString())
+            val extraValue=optional(extra);val withdrawValue=optional(withdrawal);val recurring=optional(monthlyWithdrawal)
+            val target=if(goal.text.isBlank())null else SavingsPlanner.parseAmount(goal.text.toString())
+            if(initialValue==null||monthlyValue==null||count==null||count !in 1..120||extraValue==null||withdrawValue==null||recurring==null||(goal.text.isNotBlank()&&target==null)) {
+                toast("Verifica los montos y el plazo. Escribe 0 como ahorro inicial si empiezas de cero.");return@setOnClickListener
+            }
+            val plan=SavingsPlanner.Draft(initialValue,monthlyValue,count,extraValue,withdrawValue,recurring,target,startsThisMonth=starts.selectedItemPosition==0)
+            try {SavingsPlanner.calculate(plan)}catch(_:ArithmeticException){toast("Los montos son demasiado grandes");return@setOnClickListener}
+            dialog.dismiss();page="Asistente";askAssistant(SavingsPlanner.question(plan))
+        }
     }
 }

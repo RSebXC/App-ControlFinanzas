@@ -16,7 +16,21 @@ Este repositorio contiene el código del proyecto, documentación y pruebas con 
 - Conversar con un asistente local sobre meses, categorías, comercios, presupuestos y pagos, sin IA externa.
 - Simular un monto de ahorro sin modificar cuentas ni movimientos.
 
-## Actualización 0.5.0
+## Actualización 0.5.1
+
+El asistente ahora permite proyectar ahorros con saldo inicial, aportes por mes o un aporte total, extras, retiros y una meta opcional. Conserva el contexto para preguntas de seguimiento y muestra la fórmula, una gráfica y el desglose mensual. Si falta un monto o no está claro si es mensual o total, pregunta antes de calcular.
+
+Ejemplo con datos ficticios:
+
+- «Si ahorro Q500 al mes durante 2 meses y ya tengo Q1,000» → Q2,000.
+- «¿Y si son 3 meses?» → Q2,500.
+- «Y si retiro Q200» → Q2,300.
+
+También puedes abrir **Asistente → Planear mis ahorros**. No se modifica ninguna cuenta y no se incluyen intereses ni rendimientos. Consulta los [supuestos del planificador](docs/AHORROS.md).
+
+[Ver una proyección con datos ficticios](docs/screenshots/savings.png).
+
+### Diseño de 0.5.0
 
 Rediseño de la identidad visual: marca vectorial, iconos consistentes, tarjetas de saldo e indicadores, accesos rápidos, navegación renovada y formularios desplazables. El botón del ojo permite ocultar montos y gráficas.
 
@@ -24,7 +38,7 @@ Reportes con líneas o barras, selección de 3/6/12 meses, dona por categorías,
 
 Asistente accesible desde la navegación principal, con preguntas sugeridas, conversación durante la sesión y campo de consulta fijo. Reconoce meses escritos en español o como `2026-09`, compara registros, consulta límites y permite simular un ahorro. **Es un motor local basado en reglas, no IA generativa.** No envía datos a servicios externos.
 
-Se mantiene `gt.finanzas.privadas`, `mis_finanzas.db`, esquema SQLite 1 y el formato de respaldo. La versión aumenta a `versionCode = 7`.
+Se mantiene `gt.finanzas.privadas`, `mis_finanzas.db`, esquema SQLite 1 y el formato de respaldo. La versión aumenta a `versionCode = 8`.
 
 **Para actualizar una app existente, primero guarda un respaldo privado y usa la misma firma. No desinstales la versión anterior.** Consulta la [guía de actualización](docs/ACTUALIZACION.md).
 

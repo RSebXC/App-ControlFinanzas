@@ -1,5 +1,16 @@
 # Verificación de la actualización
 
+## Resultado de 0.5.1
+
+- APK compilado y Android lint completado sin errores; continúan advertencias de compatibilidad y presentación ya descritas.
+- Veintidós pruebas unitarias aprobadas, incluidas quince del planificador: aportes mensuales y totales, centavos, extras, retiros, metas, datos faltantes, preguntas de seguimiento, separadores inválidos y protección contra desbordamiento.
+- En el emulador se verificó la secuencia ficticia de Q1,000 iniciales + Q500 al mes durante 2 meses → Q2,000; cambio a 3 meses → Q2,500; retiro único Q200 → Q2,300.
+- Comprobados el enmascarado de respuestas, ocultación de gráficas, aclaración de ahorro inicial y conservación del contexto al superar ocho mensajes visibles.
+- La exportación completa de la base se mantuvo idéntica después de navegar y realizar las simulaciones.
+- Actualización autorizada del celular desde 0.5.0: respaldo privado, misma firma y archivos de base de datos y preferencias idénticos antes y después de instalar. La actividad principal quedó al frente después de desbloquear el dispositivo.
+
+Las proyecciones son hipotéticas y no guardan movimientos. La captura pública de ahorro usa solo datos inventados del emulador.
+
 ## Resultado de 0.5.0
 
 - APK compilado correctamente y Android lint completado sin errores (hay advertencias sobre recursos, internacionalización, dibujo y APIs obsoletas).

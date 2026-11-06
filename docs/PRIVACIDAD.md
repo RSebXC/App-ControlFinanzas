@@ -10,6 +10,8 @@ La base de datos no tiene cifrado propio. Los respaldos JSON y los reportes CSV 
 
 Desde 0.5.0 este control es el icono del ojo. Las respuestas del asistente se calculan localmente y se vuelven a enmascarar al ocultar los montos. El texto que escribes, los comercios y las categorías siguen visibles. La conversación se mantiene durante la sesión (incluida la recreación de la actividad por Android), no se agrega a la base de movimientos y se puede limpiar desde la propia pantalla. No hay llamadas a proveedores de IA. El simulador de ahorro no guarda cambios financieros.
 
+El planificador de 0.5.1 utiliza solo los supuestos que indiques. No toma automáticamente el total de tus cuentas como ahorro inicial. Si eliges una cuenta desde el formulario, usa su saldo estimado sin transferir fondos. Al recortar el historial visible se conserva el contexto del escenario dentro de la sesión; limpiar la conversación también elimina ese contexto.
+
 El repositorio contiene código, recursos de la app, documentación y pruebas inventadas. Los ejemplos de cuentas `1111` y `2222`, comercios DEMO, fechas e importes son ficticios. No son un historial personal anonimizado.
 
 `.gitignore` excluye bases de datos, respaldos JSON, CSV, hojas de cálculo, APK, claves de firma, archivos de entorno, cachés y configuración local. Una exclusión no elimina archivos ya versionados: revisa siempre `git diff --cached` y `git ls-files` antes de publicar.

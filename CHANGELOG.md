@@ -1,5 +1,16 @@
 # Cambios
 
+## 0.5.1
+
+- Planificador de ahorro hipotético en la conversación: saldo inicial explícito, aporte mensual o total, plazo de 1 a 120 meses, extras, retiros y meta opcional.
+- Seguimiento de escenarios al cambiar meses, aportes o retiros; solicitudes de aclaración ante datos incompletos o ambiguos.
+- Formulario desplazable para planear ahorros, con selección explícita de una cuenta como punto de partida y primer aporte este mes o el próximo.
+- Resultado exacto en centavos, fórmula, trayectoria y desglose mes a mes, sin modificar cuentas.
+- El aporte total conserva todos sus centavos y ajusta el remanente en el último mes. Los extras y retiros únicos se aplican una sola vez en el primero.
+- Cálculo del aporte mensual uniforme para una meta, identificación de faltantes y validación de montos y plazos.
+- Privacidad en resultados y gráficas; conservación del contexto aun al superar los ocho mensajes visibles.
+- `versionCode` 8; esquema y formato de respaldo conservados.
+
 ## 0.5.0
 
 - Nueva marca vectorial y un sistema consistente de iconos, colores, tarjetas y botones con respuesta táctil.
