@@ -1,0 +1,45 @@
+# Android build output and machine configuration
+.gradle/
+.gradle-build/
+.kotlin/
+.idea/
+**/build/
+local.properties
+*.iml
+.DS_Store
+Thumbs.db
+
+# Signing material and local credentials
+*.jks
+*.keystore
+*.p12
+*.pem
+*.key
+key.properties
+keystore.properties
+google-services.json
+.env
+.env.*
+.aws/
+.agents/
+.codex/
+
+# Personal financial data: never publish backups or exports
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.csv
+*.json
+*.jsonl
+*.xlsx
+*.xls
+*.zip
+*.apk
+*.aab
+*.log
+*.hprof
+backups/
+respaldos/
+private/
+RESULTADOS_PRUEBA.txt

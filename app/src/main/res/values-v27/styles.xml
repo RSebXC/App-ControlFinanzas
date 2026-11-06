@@ -1,0 +1,5 @@
+<resources>
+  <style name="Theme.MisFinanzas" parent="Theme.MisFinanzas.Base">
+    <item name="android:windowLightNavigationBar">true</item>
+  </style>
+</resources>

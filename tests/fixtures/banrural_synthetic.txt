@@ -1,0 +1,17 @@
+BANRURAL: Amigo, se Debito en POS Q.12.50 de tu Cuenta Monetaria ****1111 por consumo en: SHELL DEMO
+BANRURAL: Amigo, se debito de tu Cuenta Monetaria ****1111 Q.20.00 en: COMERCIO DEMO
+BANRURAL: Amigo, se acredito a tu Cuenta Monetaria ****1111 Q.21.00 en: ABONO DEMO
+BANRURAL: Amigo, se Debito en GooglePay Q.34.00 de tu Cuenta Monetaria ****1111 por consumo en: TIENDA DEMO
+BANRURAL: Amigo, se debito de tu Cuenta Monetaria ****1111 Q.5.00 en: UNIDAD APP MOVIL BANRURAL
+BANRURAL: Amigo, se Devolvio en POS Q.3.00 de tu Cuenta Monetaria ****1111 por consumo en: TIENDA DEMO
+BANRURAL: Amigo, se Debito en POS Q.46.00 de tu Cuenta Monetaria ****1111 por consumo en: CLARO DEMO
+BANRURAL: Amigo, se Debito en POS Q.9.00 de tu Cuenta Monetaria ****1111 por consumo en: TIENDA DEMO
+BANRURAL: Amigo, se debito de tu Cuenta Monetaria ****1111 Q.110.00 en: UNIDAD APP MOVIL BANRURAL
+BANRURAL: Amigo, se acredito a tu Cuenta de Ahorro ****2222 Q.110.00 en: UNIDAD APP MOVIL BANRURAL
+BANRURAL: Amigo, se debito de tu Cuenta Monetaria ****1111 Q.210.00 en: UNIDAD APP MOVIL BANRURAL
+BANRURAL: Amigo, se debito de tu Cuenta Monetaria ****1111 Q.350.00 en: UNIDAD APP MOVIL BANRURAL
+BANRURAL: Amigo, se acredito a tu Cuenta de Ahorro ****2222 Q.350.00 en: UNIDAD APP MOVIL BANRURAL
+BANRURAL: Amigo, se Debito en POS Q.17.00 de tu Cuenta Monetaria ****1111 por consumo en: NETFLIX DEMO
+BANRURAL: Amigo, se Debito en GooglePay Q.18.00 de tu Cuenta Monetaria ****1111 por consumo en: CINE DEMO
+BANRURAL: Amigo, se Debito en GooglePay Q.19.00 de tu Cuenta Monetaria ****1111 por consumo en: CINE DEMO
+BANRURAL: Amigo, se acredito a tu Cuenta Monetaria ****1111 Q.750.00 en: ABONO DEMO
