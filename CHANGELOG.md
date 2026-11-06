@@ -1,5 +1,18 @@
 # Cambios
 
+## 0.5.0
+
+- Nueva marca vectorial y un sistema consistente de iconos, colores, tarjetas y botones con respuesta táctil.
+- Inicio con saldo destacado, indicadores de ingresos/gastos, acciones rápidas, gasto acumulado diario y movimientos recientes.
+- Navegación con acceso directo al asistente y herramientas desde la cabecera.
+- Reportes con selección de 3, 6 y 12 meses, modos de líneas/barras, dona de categorías, escala legible y comercios principales.
+- Consultas diarias y por comercio de solo lectura, sin el límite de visualización del historial.
+- Asistente conversacional local, consultas por mes, comparación, presupuestos, pagos y mayor compra; entrada fija con soporte del teclado.
+- Simulación de ahorro que no escribe registros financieros.
+- Rediseño de cuentas, presupuestos, pagos, filtros y filas del historial. Los saldos desconocidos pueden dejarse pendientes al crear una cuenta.
+- Formularios desplazables y conservación de la privacidad en indicadores, gráficas y respuestas.
+- Mismo identificador, esquema SQLite y respaldo; `versionCode` pasa a 7.
+
 ## 0.4.0
 
 - Inicio con balance confirmado del mes y acceso directo a pendientes.

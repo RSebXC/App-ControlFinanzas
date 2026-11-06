@@ -9,17 +9,22 @@ Este repositorio contiene el código del proyecto, documentación y pruebas con 
 - Consultar cuentas y saldos estimados a partir de un saldo real registrado.
 - Agregar gastos e ingresos manuales o importar alertas SMS compatibles de Banrural y Banco Industrial, con permiso opcional.
 - Separar gastos, ingresos confirmados, devoluciones, pendientes y transferencias internas.
-- Revisar seis meses de ingresos y gastos, categorías y comparaciones mensuales.
+- Explorar ingresos y gastos en períodos de 3, 6 o 12 meses, con líneas, barras y distribución por categoría.
 - Buscar movimientos y filtrar pendientes para clasificarlos.
 - Gestionar presupuestos, pagos recurrentes y recordatorios locales.
 - Exportar reportes CSV y guardar/restaurar copias JSON mediante acciones explícitas.
-- Consultar un asistente local basado en reglas, sin IA externa.
+- Conversar con un asistente local sobre meses, categorías, comercios, presupuestos y pagos, sin IA externa.
+- Simular un monto de ahorro sin modificar cuentas ni movimientos.
 
-## Actualización 0.4.0
+## Actualización 0.5.0
 
-Inicio más claro, gráficas con escala en Q y meses consecutivos, detalle de categorías, búsqueda por comercio/categoría/cuenta, filtros de movimientos y botón **Ocultar Q**. Las gráficas distinguen meses sin registros y devoluciones que superan las compras.
+Rediseño de la identidad visual: marca vectorial, iconos consistentes, tarjetas de saldo e indicadores, accesos rápidos, navegación renovada y formularios desplazables. El botón del ojo permite ocultar montos y gráficas.
 
-Se mantiene `gt.finanzas.privadas`, `mis_finanzas.db`, esquema SQLite 1 y el formato de respaldo. La versión aumenta a `versionCode = 6`.
+Reportes con líneas o barras, selección de 3/6/12 meses, dona por categorías, gasto acumulado diario y comercios principales. Los meses sin registros y los valores negativos por devoluciones se representan explícitamente.
+
+Asistente accesible desde la navegación principal, con preguntas sugeridas, conversación durante la sesión y campo de consulta fijo. Reconoce meses escritos en español o como `2026-09`, compara registros, consulta límites y permite simular un ahorro. **Es un motor local basado en reglas, no IA generativa.** No envía datos a servicios externos.
+
+Se mantiene `gt.finanzas.privadas`, `mis_finanzas.db`, esquema SQLite 1 y el formato de respaldo. La versión aumenta a `versionCode = 7`.
 
 **Para actualizar una app existente, primero guarda un respaldo privado y usa la misma firma. No desinstales la versión anterior.** Consulta la [guía de actualización](docs/ACTUALIZACION.md).
 
@@ -32,6 +37,10 @@ Las capturas de verificación se generan exclusivamente en un emulador con datos
 | ![Inicio con datos ficticios](docs/screenshots/home.png) | ![Gráfica con mes sin registros y devolución superior a compras](docs/screenshots/trend.png) | ![Búsqueda de movimientos ficticios sin tildes](docs/screenshots/search.png) |
 
 [Ver pantalla con montos ocultos](docs/screenshots/privacy.png).
+
+| Distribución por categorías | Asistente local | Conversación |
+| --- | --- | --- |
+| ![Dona de categorías con datos ficticios](docs/screenshots/categories.png) | ![Nueva interfaz del asistente](docs/screenshots/assistant.png) | ![Consulta local con datos ficticios](docs/screenshots/conversation.png) |
 
 ## Desarrollo
 
@@ -61,6 +70,9 @@ APK local: `app/build/outputs/apk/debug/app-debug.apk`. No se incluye en Git ni 
 | `MainActivity.kt` | Interfaz, navegación y acciones explícitas |
 | `FinanceCharts.kt` | Gráfica local con escala y valores negativos |
 | `ReportMath.kt` | Cálculos de presentación verificables |
+| `FinanceDesign.kt` | Paleta e iconos vectoriales compartidos |
+| `FinanceReadModel.kt` | Consultas de reportes de solo lectura sin límite de filas de la lista |
+| `FinanceAnalysis.kt` | Meses de consulta y gasto acumulado diario |
 | `FinanceDb.kt` | SQLite, movimientos, reportes y respaldo |
 | `BankParser.kt` | Reglas de reconocimiento de alertas bancarias |
 | `BankNotificationListener.kt` | Importación opcional de notificaciones compatibles |

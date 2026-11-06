@@ -1,5 +1,18 @@
 # Verificación de la actualización
 
+## Resultado de 0.5.0
+
+- APK compilado correctamente y Android lint completado sin errores (hay advertencias sobre recursos, internacionalización, dibujo y APIs obsoletas).
+- Siete pruebas unitarias aprobadas: formatos bancarios, cálculos de reportes, gasto acumulado con devoluciones, meses con año bisiesto y consultas por fechas explícitas o relativas.
+- Conservación de la exportación completa de la base al actualizar en emulador desde la versión anterior; esquema SQLite 1 sin migraciones.
+- Agregaciones diarias de solo lectura comparadas con los totales mensuales; mayor compra y principales comercios comprobados con datos ficticios.
+- Verificados Inicio, indicadores visibles, privacidad, modos líneas/barras, período de 12 meses, dona, búsqueda, filtros, cuentas y respuestas del asistente.
+- El envío desde el campo fijo del asistente y el enmascarado de respuestas anteriores fueron comprobados automáticamente.
+- Capturas revisadas visualmente para corregir la distribución de indicadores y documentar el rediseño.
+- Actualización autorizada en el celular a 0.5.0: respaldo privado antes de instalar, certificado coincidente y todos los archivos de base de datos y preferencias idénticos antes y después de instalar, comprobados antes de abrir la app. La actividad principal se abrió correctamente.
+
+Los respaldos y comprobantes locales del dispositivo están excluidos de Git. Las capturas públicas proceden exclusivamente del emulador.
+
 ## Resultado de 0.4.0
 
 - APK de depuración compilado correctamente.
@@ -37,7 +50,7 @@ La preparación requiere una base vacía; se detiene si ya existen cuentas o mov
 
 El script instala la versión anterior, prepara datos ficticios y guarda el SHA-256 de la exportación completa. Después instala la versión nueva con `install -r` y compara la exportación completa y la cantidad de movimientos, además de verificar la versión SQLite 1.
 
-La segunda parte abre Inicio, oculta y vuelve a mostrar montos, abre Meses, busca `cafe` y encuentra `Café`, filtra pendientes, consulta Cuentas y vuelve a comprobar que el contenido financiero no cambió.
+La segunda parte abre Inicio, comprueba sus indicadores, oculta y muestra montos, abre Reportes, cambia modos y períodos, consulta la dona, busca `cafe` y encuentra `Café`, filtra pendientes y consulta Cuentas. También realiza preguntas al asistente, envía una consulta escrita, enmascara respuestas y vuelve a comprobar que el contenido financiero no cambió.
 
 Las capturas se guardan en `build/qa/` y solo contienen datos inventados del emulador. Nunca ejecutes estas instrucciones contra un celular ni uses un respaldo personal como fixture.
 

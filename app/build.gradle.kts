@@ -11,8 +11,8 @@ android {
         applicationId = "gt.finanzas.privadas"
         minSdk = 26
         targetSdk = 35
-        versionCode = 6
-        versionName = "0.4.0"
+        versionCode = 7
+        versionName = "0.5.0"
         testInstrumentationRunner = "gt.finanzas.privadas.UpgradeSmokeTest"
     }
     buildTypes { release { isMinifyEnabled = false } }

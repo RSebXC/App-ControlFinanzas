@@ -9,7 +9,6 @@ import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
-import android.widget.Spinner
 import android.widget.ScrollView
 import android.widget.TextView
 import java.io.File
@@ -61,26 +60,44 @@ class UpgradeSmokeTest : Instrumentation() {
                     check(db.readableDatabase.version == 1)
                     check(db.monthReport(YearMonth.now().minusMonths(4).toString()).expenses < 0)
                     check(db.monthReport(YearMonth.now().minusMonths(2).toString()).count == 0L)
+                    val read=FinanceReadModel(db)
+                    ReportMath.monthsEndingAt(YearMonth.now().toString()).forEach { month ->
+                        check(read.dailyNet(month).sum()==db.monthReport(month).expenses) { "Daily aggregation differs from monthly report" }
+                    }
+                    check(read.largestPurchase(YearMonth.now().toString())?.second==26000L)
+                    check(read.topMerchants(YearMonth.now().toString()).first().first=="Servicio DEMO")
                 }
                 ctx.getSharedPreferences("display_preferences", 0).edit().putBoolean("hide_amounts", false).commit()
                 val activity = startActivitySync(Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                 activityRoot = activity.window.decorView
                 waitForIdleSync()
-                checkVisible(activity, "Tu panorama")
+                checkVisible(activity, "Tu dinero, con claridad.")
+                settleFrames()
+                val incomeMetric=allViews(activity.window.decorView).filterIsInstance<TextView>().first { it.text.toString()=="Q1,800.00" }
+                check(incomeMetric.getGlobalVisibleRect(android.graphics.Rect())) { "Income metric is collapsed or not visible" }
                 screenshot("home")
-                click(activity, "Ocultar Q")
-                checkVisible(activity, "Gráfica oculta. Pulsa Ver Q para mostrarla.")
+                clickDescription(activity, "Ocultar montos")
+                checkVisible(activity, "Gráfica oculta. Pulsa el ojo para mostrarla.")
                 check(allViews(activity.window.decorView).filterIsInstance<TextView>().none { Regex("Q[0-9]").containsMatchIn(it.text) })
                 screenshot("privacy")
-                click(activity, "Ver Q")
-                click(activity, "Meses")
-                checkVisible(activity, "Tus reportes")
+                clickDescription(activity, "Mostrar montos")
+                click(activity, "Reportes")
+                checkVisible(activity, "Tus números, en perspectiva.")
                 screenshot("months")
                 runOnMainSync {
                     val chart = allViews(activity.window.decorView).filterIsInstance<FinanceTrendView>().first()
-                    chart.requestRectangleOnScreen(android.graphics.Rect(0, 0, chart.width, chart.height), true)
+                    scrollToView(activity,chart)
                 }
                 screenshot("trend")
+                click(activity, "Barras")
+                click(activity, "12 meses")
+                check(allViews(activity.window.decorView).filterIsInstance<TextView>().first { it.text.toString()=="12 meses" }.isSelected)
+                click(activity, "6 meses")
+                runOnMainSync {
+                    val donut=allViews(activity.window.decorView).filterIsInstance<CategoryDonutView>().first()
+                    scrollToView(activity,donut)
+                }
+                screenshot("categories")
                 click(activity, "Movimientos")
                 runOnMainSync {
                     allViews(activity.window.decorView).filterIsInstance<EditText>().first().setText("cafe")
@@ -90,18 +107,34 @@ class UpgradeSmokeTest : Instrumentation() {
                 screenshot("search")
                 runOnMainSync {
                     allViews(activity.window.decorView).filterIsInstance<EditText>().first().setText("")
-                    allViews(activity.window.decorView).filterIsInstance<Spinner>().first().setSelection(1)
                 }
+                click(activity,"Por revisar")
                 waitForIdleSync()
                 checkVisible(activity, "Débito DEMO")
                 check(allViews(activity.window.decorView).filterIsInstance<TextView>().any { it.text.toString().startsWith("1 resultado") })
                 click(activity, "Cuentas")
                 checkVisible(activity, "Cuenta de prueba")
                 screenshot("accounts")
+                click(activity,"Asistente")
+                checkVisible(activity,"Pregúntale a tus números.")
+                screenshot("assistant")
+                click(activity,"Resumen del mes")
+                check(allViews(activity.window.decorView).filterIsInstance<TextView>().any { it.text.toString().contains("Ingresos confirmados: Q1,800.00") })
+                screenshot("conversation")
+                runOnMainSync {
+                    allViews(activity.window.decorView).filterIsInstance<EditText>().first().setText("Mayor compra")
+                }
+                clickDescription(activity,"Consultar mis finanzas")
+                check(allViews(activity.window.decorView).filterIsInstance<TextView>().any { it.text.toString().contains("Mayor compra confirmada") && it.text.toString().contains("Servicio DEMO") })
+                clickDescription(activity,"Ocultar montos")
+                check(allViews(activity.window.decorView).filterIsInstance<TextView>().none { Regex("Q[0-9]").containsMatchIn(it.text) })
+                clickDescription(activity,"Mostrar montos")
+                click(activity,"Mis presupuestos")
+                check(allViews(activity.window.decorView).filterIsInstance<TextView>().any { it.text.toString().contains("Límites actuales aplicados") })
                 FinanceDb(ctx).use { db ->
                     check(FinanceDb.digest(db.exportJson()) == prefs.getString("snapshot", null)) { "UI navigation modified financial data" }
                 }
-                result.putString("stream", "PASS: upgrade preserved complete database; home, privacy, monthly reports, missing month, refunds, accent-insensitive search, pending filter and accounts checked\n")
+                result.putString("stream", "PASS: complete database preserved; daily SQL aggregates, largest purchase, merchants, home, privacy, chart modes, period selector, donut, search, pending filter, accounts and assistant checked\n")
                 runOnMainSync { activity.finish() }
             }
             finish(Activity.RESULT_OK, result)
@@ -125,6 +158,30 @@ class UpgradeSmokeTest : Instrumentation() {
             check(target.performClick())
         }
         waitForIdleSync()
+        settleFrames()
+    }
+
+    private fun clickDescription(activity:Activity,label:String) {
+        runOnMainSync {
+            check(allViews(activity.window.decorView).first { it.contentDescription?.toString()==label }.performClick())
+        }
+        waitForIdleSync()
+        settleFrames()
+    }
+
+    private fun settleFrames() {
+        val rendered=CountDownLatch(1)
+        runOnMainSync { activityRoot.postOnAnimation { activityRoot.postOnAnimation { rendered.countDown() } } }
+        check(rendered.await(3,TimeUnit.SECONDS)) { "Rendering timed out" }
+    }
+
+    private fun scrollToView(activity:Activity,target:View) {
+        val scroll=allViews(activity.window.decorView).filterIsInstance<ScrollView>().first()
+        val content=scroll.getChildAt(0)
+        var node=target
+        var top=0
+        while(node!==content){top+=node.top;node=node.parent as View}
+        scroll.scrollTo(0,(top-72*activity.resources.displayMetrics.density).toInt().coerceAtLeast(0))
     }
 
     private fun screenshot(name: String) {

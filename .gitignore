@@ -35,6 +35,8 @@ google-services.json
 *.xlsx
 *.xls
 *.zip
+*.tar
+*.tar.gz
 *.apk
 *.aab
 *.log

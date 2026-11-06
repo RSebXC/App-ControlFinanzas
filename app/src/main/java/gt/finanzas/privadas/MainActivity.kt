@@ -16,6 +16,9 @@ import android.graphics.Color
 import android.content.res.ColorStateList
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
+import java.time.YearMonth
+import java.time.LocalDate
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -46,6 +49,12 @@ class MainActivity : Activity() {
     private var movementQuery = ""
     private var movementFilter = "Todos"
     private var movementLimit = 80
+    private var chartMonths = 6
+    private var chartLines = true
+    private var scrollToConversation = false
+    private val assistantQuestions = mutableListOf<String>()
+    private var assistantDraft = ""
+    private val readModel by lazy { FinanceReadModel(db) }
     private var backCallback: OnBackInvokedCallback? = null
     private var selectedMonth = FinanceDb.ym()
     private var monthForExport = FinanceDb.ym()
@@ -92,13 +101,13 @@ class MainActivity : Activity() {
         }
         mainHandler.removeCallbacks(recentScanRunnable)
     }
-    private val bg = Color.rgb(246,249,248)
-    private val ink = Color.rgb(23,49,43)
-    private val green = Color.rgb(0,119,82)
-    private val darkGreen = Color.rgb(11,77,62)
-    private val softGreen = Color.rgb(231,246,238)
-    private val muted = Color.rgb(100,121,114)
-    private val red = Color.rgb(193,69,76)
+    private val bg = FinanceDesign.background
+    private val ink = FinanceDesign.ink
+    private val green = FinanceDesign.teal
+    private val darkGreen = FinanceDesign.navy
+    private val softGreen = FinanceDesign.mint
+    private val muted = FinanceDesign.muted
+    private val red = FinanceDesign.coral
     private val categories = listOf("Gasolina","Comida","Servicios","Suscripciones","Compras","Entretenimiento","Hogar","Transporte","Salud","Educación","Otros","Por revisar")
     private val kinds = listOf("EXPENSE","INCOME","REFUND","TRANSFER_OUT","TRANSFER_IN","PENDING_DEBIT","PENDING_CREDIT")
     private val kindLabels = listOf("Gasto","Ingreso confirmado","Devolución","Traslado enviado","Traslado recibido","Débito por revisar","Abono por revisar")
@@ -125,6 +134,10 @@ class MainActivity : Activity() {
             selectedMonth = it.getString("month", FinanceDb.ym())
             movementQuery = it.getString("query", "")
             movementFilter = it.getString("filter", "Todos")
+            chartMonths = it.getInt("chartMonths", 6)
+            chartLines = it.getBoolean("chartLines", true)
+            assistantQuestions.addAll(it.getStringArrayList("questions").orEmpty().takeLast(8))
+            assistantDraft = it.getString("assistantDraft", "")
         }
         render()
     }
@@ -133,6 +146,10 @@ class MainActivity : Activity() {
         outState.putString("month", selectedMonth)
         outState.putString("query", movementQuery)
         outState.putString("filter", movementFilter)
+        outState.putInt("chartMonths", chartMonths)
+        outState.putBoolean("chartLines", chartLines)
+        outState.putStringArrayList("questions", ArrayList(assistantQuestions))
+        outState.putString("assistantDraft", assistantDraft)
         super.onSaveInstanceState(outState)
     }
     // The legacy overload is only reached below Android 13; Android 13+ uses the private flag.
@@ -180,7 +197,7 @@ class MainActivity : Activity() {
 
     private fun navigateBack() {
         when (page) {
-            "Pagos", "Presupuestos", "Asistente" -> { page = "Más"; render() }
+            "Pagos", "Presupuestos" -> { page = "Más"; render() }
             "Inicio" -> AlertDialog.Builder(this)
                 .setTitle("¿Cerrar Mis Finanzas?")
                 .setMessage("Tus movimientos y saldos se guardan en el teléfono.")
@@ -191,191 +208,201 @@ class MainActivity : Activity() {
         }
     }
     private fun dp(n:Int):Int=(n*resources.displayMetrics.density+0.5f).toInt()
-    private fun drawable(color:Int,radius:Int=16):GradientDrawable=GradientDrawable().apply {
+    private fun drawable(color:Int,radius:Int=18):GradientDrawable=GradientDrawable().apply {
         setColor(color);cornerRadius=dp(radius).toFloat()
     }
     private fun text(s:String,size:Float=15f,bold:Boolean=false,color:Int=ink):TextView=TextView(this).apply {
         text=s;textSize=size;setTextColor(color)
-        typeface=Typeface.create(if(bold)"sans-serif-medium" else "sans-serif",Typeface.NORMAL)
-        setLineSpacing(dp(2).toFloat(),1.10f)
+        typeface=Typeface.create("sans-serif",if(bold)Typeface.BOLD else Typeface.NORMAL)
+        setLineSpacing(dp(2).toFloat(),1.06f)
     }
     private fun gap(h:Int=10)=View(this).apply{layoutParams=LinearLayout.LayoutParams(1,dp(h))}
-    private fun button(s:String,onClick:()->Unit):TextView=text(s,14f,true,Color.WHITE).apply {
-        isFocusable=true;minHeight=dp(48);gravity=Gravity.CENTER;background=drawable(green,16);setPadding(dp(14),dp(16),dp(14),dp(16));setOnClickListener{onClick()}
+    private fun go(destination:String) { page=destination;render() }
+    private fun touch(view:View,click:()->Unit) {
+        view.isClickable=true;view.isFocusable=true
+        view.foreground=RippleDrawable(ColorStateList.valueOf(0x18007e77),null,drawable(Color.WHITE,18))
+        view.setOnClickListener{click()}
     }
-    private fun miniButton(s:String,click:()->Unit):TextView=text(s,12f,true,green).apply {
-        isFocusable=true;minHeight=dp(48);gravity=Gravity.CENTER_VERTICAL;background=drawable(softGreen,13);setPadding(dp(14),dp(14),dp(14),dp(14));
-        setOnClickListener{click()}
+    private fun iconBubble(name:String,tint:Int=green,surface:Int=softGreen,size:Int=44)=ImageView(this).apply {
+        setImageDrawable(FinanceIcon(name,tint,dp(23)))
+        background=drawable(surface,14);setPadding(dp(11),dp(11),dp(11),dp(11))
+        layoutParams=LinearLayout.LayoutParams(dp(size),dp(size))
+        importantForAccessibility=View.IMPORTANT_FOR_ACCESSIBILITY_NO
     }
-    private fun actionTile(symbol:String, title:String, subtitle:String, click:()->Unit):LinearLayout =
-        LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            background = GradientDrawable().apply {
-                setColor(Color.WHITE)
-                cornerRadius = dp(19).toFloat()
-                setStroke(dp(1), Color.rgb(211,232,222))
-            }
-            setPadding(dp(14),dp(13),dp(14),dp(13))
-            elevation = dp(1).toFloat()
-            val circle = text(symbol,23f,true,green).apply {
-                gravity = Gravity.CENTER
-                background = drawable(softGreen,15)
-            }
-            addView(circle,LinearLayout.LayoutParams(dp(49),dp(49)))
-            val words=LinearLayout(this@MainActivity).apply {
-                orientation=LinearLayout.VERTICAL
-                setPadding(dp(12),0,dp(6),0)
-                addView(text(title,15f,true,darkGreen))
-                addView(gap(3))
-                addView(text(subtitle,11.5f,false,muted))
-            }
-            addView(words,LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1f))
-            addView(text("›",25f,true,green))
-            isClickable=true;isFocusable=true
-            contentDescription="$title. $subtitle"
-            setOnClickListener{click()}
+    private fun iconButton(name:String,label:String,click:()->Unit)=iconBubble(name,ink,Color.TRANSPARENT,48).apply {
+        importantForAccessibility=View.IMPORTANT_FOR_ACCESSIBILITY_YES;contentDescription=label
+        touch(this,click)
+    }
+    private fun inferredIcon(label:String):String {
+        val q=BankParser.fold(label)
+        return when {
+            q.contains("export")||q.contains("copia")||q.contains("respaldo") -> "download"
+            q.contains("sincr")||q.contains("actualizar movimientos")||q.contains("importar")||q.contains("leer sms") -> "refresh"
+            q.contains("asistente")||q.contains("consult") -> "spark"
+            q.contains("presupuest")||q.contains("limite") -> "budget"
+            q.contains("pago") -> "calendar"
+            q.contains("transfer")||q.contains("traslado") -> "transfer"
+            q.contains("agregar")||q.contains("nuevo")||q.startsWith("+") -> "add"
+            q.contains("revis") -> "clock"
+            q.contains("saldo")||q.contains("cuenta") -> "wallet"
+            q.contains("reporte")||q.contains("graf")||q.contains("cifras")||q.contains("mes") -> "chart"
+            else -> "next"
         }
-    private fun autoSyncTile():LinearLayout = actionTile(
-        if(autoSmsEnabled())"✓" else "↻",
-        if(autoSmsEnabled())"Sincronización automática activa" else "Activar sincronización automática",
-        if(autoSmsEnabled())"Al abrir la app y cuando llegan SMS visibles" else "Autorizar lectura de SMS nuevos en el teléfono"
-    ) { toggleAutomaticSync() }
-
-    private fun card():LinearLayout=LinearLayout(this).apply {
-        orientation=LinearLayout.VERTICAL
-        background=drawable(Color.WHITE,20).apply { setStroke(dp(1), Color.rgb(225,235,230)) }
-        setPadding(dp(18),dp(18),dp(18),dp(18)); elevation=dp(1).toFloat()
-        val lp=LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT)
-        lp.bottomMargin=dp(12);layoutParams=lp
     }
-    private fun sectionTitle(t:String){pageBody.addView(text(t,19f,true));pageBody.addView(gap(10))}
+    private fun cleanLabel(label:String)=label.trim().trimStart('+','▥','⇄','↻','◷','◫','✧').trim()
+    private fun button(s:String,onClick:()->Unit):TextView=text(cleanLabel(s),14f,true,Color.WHITE).apply {
+        minHeight=dp(50);gravity=Gravity.CENTER
+        background=GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,intArrayOf(green,Color.rgb(0,145,130))).apply {cornerRadius=dp(16).toFloat()}
+        setPadding(dp(18),dp(14),dp(18),dp(14));touch(this,onClick)
+    }
+    private fun miniButton(s:String,click:()->Unit):TextView=text(cleanLabel(s),13f,true,green).apply {
+        minHeight=dp(48);gravity=Gravity.CENTER_VERTICAL
+        background=drawable(Color.WHITE,14).apply{setStroke(dp(1),FinanceDesign.line)}
+        setPadding(dp(14),dp(12),dp(14),dp(12))
+        setCompoundDrawablesRelative(FinanceIcon(inferredIcon(s),green,dp(19)),null,null,null)
+        compoundDrawablePadding=dp(9);touch(this,click)
+    }
+    private fun actionTile(symbol:String,title:String,subtitle:String,click:()->Unit):LinearLayout=LinearLayout(this).apply {
+        orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL
+        background=drawable(Color.WHITE,20).apply {setStroke(dp(1),FinanceDesign.line)}
+        setPadding(dp(14),dp(14),dp(14),dp(14))
+        val name=if(symbol in listOf("spark","budget","calendar","shield","refresh","wallet"))symbol else inferredIcon(title)
+        addView(iconBubble(name))
+        val words=LinearLayout(this@MainActivity).apply {
+            orientation=LinearLayout.VERTICAL;setPadding(dp(12),0,dp(8),0)
+            addView(text(title,14f,true));addView(gap(3));addView(text(subtitle,12f,false,muted))
+        }
+        addView(words,LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1f))
+        addView(ImageView(this@MainActivity).apply {setImageDrawable(FinanceIcon("next",muted,dp(18)))},LinearLayout.LayoutParams(dp(18),dp(18)))
+        contentDescription="$title. $subtitle";touch(this,click)
+    }
+    private fun autoSyncTile():LinearLayout=actionTile("refresh",
+        if(autoSmsEnabled())"Sincronización activa" else "Sincronización automática",
+        if(autoSmsEnabled())"Lectura de SMS autorizada · Toca para pausar" else "Elige si quieres importar los SMS nuevos"
+    ){toggleAutomaticSync()}
+    private fun card():LinearLayout=LinearLayout(this).apply {
+        orientation=LinearLayout.VERTICAL;background=drawable(Color.WHITE,22)
+        setPadding(dp(18),dp(18),dp(18),dp(18))
+        layoutParams=LinearLayout.LayoutParams(-1,-2).apply {bottomMargin=dp(14)}
+    }
+    private fun sectionTitle(t:String){pageBody.addView(gap(8));pageBody.addView(text(t,19f,true));pageBody.addView(gap(12))}
+    private fun pageTitle(title:String,subtitle:String) {
+        pageBody.addView(text(title,27f,true));pageBody.addView(gap(5));pageBody.addView(text(subtitle,13f,false,muted));pageBody.addView(gap(20))
+    }
     private fun row(left:String,right:String,rightColor:Int=ink):LinearLayout=LinearLayout(this).apply {
         orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL
-        addView(text(left,14f,false,muted),LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1f))
-        addView(text(right,15f,true,rightColor).apply { gravity=Gravity.END },LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1f))
+        addView(text(left,13f,false,muted),LinearLayout.LayoutParams(0,-2,1f))
+        addView(text(right,14f,true,rightColor).apply{gravity=Gravity.END},LinearLayout.LayoutParams(0,-2,1f))
     }
+    private fun pill(label:String,color:Int=green,surface:Int=softGreen)=text(label,11f,true,color).apply {
+        background=drawable(surface,9);setPadding(dp(9),dp(5),dp(9),dp(5))
+        layoutParams=LinearLayout.LayoutParams(-2,-2)
+    }
+    private fun divider()=View(this).apply{setBackgroundColor(FinanceDesign.line);layoutParams=LinearLayout.LayoutParams(-1,dp(1)).apply{topMargin=dp(12);bottomMargin=dp(12)}}
     private fun edit(hint:String,initial:String="",numeric:Boolean=false):EditText=EditText(this).apply {
-        setSingleLine(true);setText(initial);setHint(hint);textSize=15f
+        setSingleLine(true);setText(initial);setHint(hint);textSize=14f;setTextColor(ink);setHintTextColor(muted)
+        background=drawable(Color.WHITE,14).apply {setStroke(dp(1),FinanceDesign.line)}
         if(numeric)inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED
-        setPadding(dp(9),dp(10),dp(9),dp(10))
+        setPadding(dp(15),dp(15),dp(15),dp(15));minimumHeight=dp(50)
     }
-    private fun block(vararg views:View):LinearLayout=LinearLayout(this).apply {
-        orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(8),dp(16),dp(8))
-        views.forEach { addView(it) }
+    private fun block(vararg views:View):ScrollView=ScrollView(this).apply {
+        addView(LinearLayout(this@MainActivity).apply {
+            orientation=LinearLayout.VERTICAL;setPadding(dp(20),dp(12),dp(20),dp(12))
+            views.forEach {addView(it);addView(gap(8))}
+        })
     }
     private fun dropdown(items:List<String>):Spinner=Spinner(this).apply {
         adapter=ArrayAdapter(this@MainActivity,android.R.layout.simple_spinner_dropdown_item,items)
+        minimumHeight=dp(48)
     }
     private fun alert(t:String,m:String)=AlertDialog.Builder(this).setTitle(t).setMessage(m).setPositiveButton("Entendido",null).show()
     private fun toast(s:String)=Toast.makeText(this,s,Toast.LENGTH_LONG).show()
-
-    private fun render(){
-        root=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL;setBackgroundColor(bg)}
-        // Android 15 y 16 colocan la ventana detrás de las barras del sistema por defecto.
-        // Respetar sus insets evita que el reloj se dibuje encima del ícono y del título.
-        if (Build.VERSION.SDK_INT >= 35) {
-            root.setOnApplyWindowInsetsListener { view, insets ->
-                val safe = insets.getInsets(
-                    WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars() or
-                        WindowInsets.Type.displayCutout()
-                )
-                view.setPadding(safe.left, safe.top, safe.right, safe.bottom)
-                insets
-            }
+    private fun metric(label:String,amount:Long,icon:String,tint:Int):LinearLayout=card().apply {
+        setPadding(dp(15),dp(15),dp(15),dp(15))
+        val top=LinearLayout(this@MainActivity).apply {gravity=Gravity.CENTER_VERTICAL}
+        top.addView(iconBubble(icon,tint,if(tint==red)0xffffedf0.toInt() else softGreen,34))
+        top.addView(text(label,12f,false,muted).apply{setPadding(dp(8),0,0,0)},LinearLayout.LayoutParams(0,-2,1f));addView(top)
+        addView(gap(11));addView(text(money(amount),21f,true).apply {
+            setSingleLine(true);setAutoSizeTextTypeUniformWithConfiguration(14,21,1,android.util.TypedValue.COMPLEX_UNIT_SP)
+        })
+    }
+    private fun metricPair(left:LinearLayout,right:LinearLayout):LinearLayout=LinearLayout(this).apply {
+        addView(left,LinearLayout.LayoutParams(0,-2,1f));addView(View(this@MainActivity),LinearLayout.LayoutParams(dp(12),1))
+        addView(right,LinearLayout.LayoutParams(0,-2,1f));layoutParams=LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(14)}
+    }
+    private data class QuickAction(val label:String,val icon:String,val action:()->Unit)
+    private fun quickActions(items:List<QuickAction>):LinearLayout=LinearLayout(this).apply {
+        orientation=LinearLayout.HORIZONTAL;gravity=Gravity.TOP
+        items.forEach { item ->
+            val tile=LinearLayout(this@MainActivity).apply {
+                orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER;setPadding(dp(2),dp(4),dp(2),dp(8))
+                addView(iconBubble(item.icon,green,Color.WHITE,52));addView(gap(8))
+                addView(text(item.label,11.5f,true).apply{gravity=Gravity.CENTER})
+                contentDescription=item.label;touch(this,item.action)
+            };addView(tile,LinearLayout.LayoutParams(0,-2,1f))
+        }
+        layoutParams=LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(14)}
+    }
+    private fun segments(labels:List<String>,selected:Int,click:(Int)->Unit):LinearLayout=LinearLayout(this).apply {
+        background=drawable(0xffeaf0f4.toInt(),13);setPadding(dp(4),dp(4),dp(4),dp(4))
+        labels.forEachIndexed { i,label ->
+            val item=text(label,12f,i==selected,if(i==selected)ink else muted).apply {
+                gravity=Gravity.CENTER;minHeight=dp(40);background=drawable(if(i==selected)Color.WHITE else Color.TRANSPARENT,10)
+                isSelected=i==selected;contentDescription=label+if(i==selected)", seleccionado" else "";touch(this){click(i)}
+            };addView(item,LinearLayout.LayoutParams(0,-2,1f))
+        }
+    }
+    private fun render(preserveScroll:Boolean=false){
+        val previousScroll=if(preserveScroll && ::root.isInitialized)root.findViewWithTag<ScrollView>("page-scroll")?.scrollY?:0 else 0
+        root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setBackgroundColor(bg)}
+        if(Build.VERSION.SDK_INT>=35)root.setOnApplyWindowInsetsListener {view,insets ->
+            val safe=insets.getInsets(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars() or WindowInsets.Type.displayCutout())
+            val keyboard=insets.getInsets(WindowInsets.Type.ime())
+            view.setPadding(safe.left,safe.top,safe.right,maxOf(safe.bottom,keyboard.bottom));insets
         }
         setContentView(root)
-        val header=LinearLayout(this).apply {
-            orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL
-            setPadding(dp(15),dp(12),dp(15),dp(10))
+        val header=LinearLayout(this).apply{gravity=Gravity.CENTER_VERTICAL;setPadding(dp(16),dp(8),dp(12),dp(8))}
+        if(page=="Inicio") header.addView(ImageView(this).apply{setImageResource(R.drawable.ic_brand_mark)},LinearLayout.LayoutParams(dp(40),dp(40)))
+        else header.addView(iconButton("back","Volver"){navigateBack()})
+        val words=LinearLayout(this).apply {
+            orientation=LinearLayout.VERTICAL;setPadding(dp(10),0,0,0)
+            addView(text(if(page=="Inicio")"MIS FINANZAS" else when(page){"Meses"->"Reportes";"Más"->"Herramientas";else->page},if(page=="Inicio")12f else 18f,true))
+            if(page=="Inicio")addView(text("Tu espacio financiero",11f,false,muted))
         }
-        if (page != "Inicio") {
-            val back = text("←",24f,true,darkGreen).apply {
-                gravity=Gravity.CENTER
-                contentDescription=if (page in listOf("Pagos","Presupuestos","Asistente")) "Volver a Más" else "Volver a Inicio"
-                setOnClickListener { navigateBack() }
-            }
-            header.addView(back,LinearLayout.LayoutParams(dp(35),dp(42)))
-        }
-        val logo=ImageView(this).apply {
-            setImageResource(gt.finanzas.privadas.R.mipmap.ic_launcher)
-            scaleType=ImageView.ScaleType.FIT_CENTER
-            contentDescription="Ícono de Mis Finanzas"
-        }
-        header.addView(logo, LinearLayout.LayoutParams(dp(37),dp(37)))
-        val headerText=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL;setPadding(dp(9),0,0,0)}
-        headerText.addView(text("Mis Finanzas",18f,true,darkGreen))
-        headerText.addView(text("Tu dinero, en tu teléfono",10.5f,false,muted))
-        header.addView(headerText,LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1f))
-        val privacy = miniButton(if(amountsHidden()) "Ver Q" else "Ocultar Q") {
-            uiPrefs.edit().putBoolean("hide_amounts", !amountsHidden()).apply()
-            render()
-        }.apply { contentDescription=if(amountsHidden()) "Mostrar montos" else "Ocultar montos en pantalla" }
-        header.addView(privacy)
+        header.addView(words,LinearLayout.LayoutParams(0,-2,1f))
+        header.addView(iconButton(if(amountsHidden())"eyeoff" else "eye",if(amountsHidden())"Mostrar montos" else "Ocultar montos") {
+            uiPrefs.edit().putBoolean("hide_amounts",!amountsHidden()).apply();render(true)
+        })
+        header.addView(iconButton("settings","Herramientas y ajustes"){go("Más")})
         root.addView(header)
-        val scroll=ScrollView(this).apply {isFillViewport=false;isVerticalScrollBarEnabled=false;isSmoothScrollingEnabled=true}
-        val up= text("↑",22f,true,green).apply {
-            gravity=Gravity.CENTER
-            contentDescription="Volver al principio de la pantalla"
-            visibility=View.GONE
-            setOnClickListener { scroll.smoothScrollTo(0,0) }
-        }
-        header.addView(up,LinearLayout.LayoutParams(dp(38),dp(40)))
-        scroll.setOnScrollChangeListener { _, _, y, _, _ ->
-            up.visibility=if(y>dp(220)) View.VISIBLE else View.GONE
-        }
-        pageBody=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(12),dp(16),dp(28))}
-        scroll.addView(pageBody)
-        root.addView(scroll,LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,0,1f))
-        when(page){
-            "Inicio" -> home()
-            "Meses" -> monthsPage()
-            "Movimientos" -> movements()
-            "Cuentas" -> accounts()
-            "Más" -> morePage()
-            "Pagos" -> bills()
-            "Presupuestos" -> budgets()
-            "Asistente" -> assistant()
-        }
-        val navigation=LinearLayout(this).apply {
-            orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL
-            background=drawable(Color.WHITE,0)
-            setPadding(dp(5),dp(7),dp(5),dp(6))
-            elevation=dp(4).toFloat()
-        }
-        val choices=listOf("Inicio" to "⌂", "Meses" to "▥", "Movimientos" to "⇄", "Cuentas" to "▣", "Más" to "☷")
-        choices.forEach {(destination,symbol)->
-            val active=if(page in listOf("Pagos","Presupuestos","Asistente"))destination=="Más" else page==destination
+        val scroll=ScrollView(this).apply{tag="page-scroll";isVerticalScrollBarEnabled=false;isSmoothScrollingEnabled=true}
+        pageBody=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(20),dp(14),dp(20),dp(28))}
+        scroll.addView(pageBody);root.addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
+        when(page){"Inicio"->home();"Meses"->monthsPage();"Movimientos"->movements();"Cuentas"->accounts();"Más"->morePage();"Pagos"->bills();"Presupuestos"->budgets();"Asistente"->assistant()}
+        if(page=="Asistente")root.addView(assistantComposer())
+        val nav=LinearLayout(this).apply{setBackgroundColor(Color.WHITE);setPadding(dp(8),dp(9),dp(8),dp(8));elevation=dp(2).toFloat()}
+        listOf(Triple("Inicio","Inicio","home"),Triple("Meses","Reportes","chart"),Triple("Movimientos","Movimientos","activity"),Triple("Cuentas","Cuentas","wallet"),Triple("Asistente","Asistente","spark")).forEach{(route,label,icon) ->
+            val active=page==route
             val item=LinearLayout(this).apply {
                 orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER
-                background=drawable(if(active)softGreen else Color.TRANSPARENT,13)
-                setPadding(dp(3),dp(7),dp(3),dp(7))
-                setOnClickListener{page=destination;render()}
-            }
-            item.isFocusable=true
-            item.isSelected=active
-            item.contentDescription=destination + if(active) ", sección actual" else ""
-            item.addView(text(symbol,22f,true,if(active)green else muted).apply{gravity=Gravity.CENTER})
-            item.addView(text(destination,10f,active,if(active)green else muted).apply{gravity=Gravity.CENTER})
-            navigation.addView(item,LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1f))
+                addView(ImageView(this@MainActivity).apply {
+                    setImageDrawable(FinanceIcon(icon,if(active)green else muted,dp(23)))
+                    setPadding(dp(16),dp(5),dp(16),dp(5));background=drawable(if(active)softGreen else Color.TRANSPARENT,14)
+                },LinearLayout.LayoutParams(dp(56),dp(34)))
+                addView(gap(4));addView(text(label,10f,active,if(active)green else muted).apply{gravity=Gravity.CENTER})
+                isSelected=active;contentDescription=label+if(active)", sección actual" else "";touch(this){go(route)}
+            };nav.addView(item,LinearLayout.LayoutParams(0,-2,1f))
         }
-        root.addView(navigation)
+        root.addView(nav)
+        if(scrollToConversation){scrollToConversation=false;scroll.post{scroll.fullScroll(View.FOCUS_DOWN)}}
+        else if(previousScroll>0)scroll.post{scroll.scrollTo(0,previousScroll)}
     }
 
     private fun morePage(){
-        sectionTitle("Organiza tu dinero")
-        pageBody.addView(text("Herramientas para administrar tus pagos y tomar mejores decisiones.",14f,false,muted))
-        pageBody.addView(gap(14))
-        listOf(
-            Triple("◷  Pagos y suscripciones","Pagos","Recordatorios y vencimientos"),
-            Triple("◫  Presupuestos","Presupuestos","Límites por categoría"),
-            Triple("✧  Asistente local","Asistente","Consultas a tus movimientos")
-        ).forEach {(title,destination,subtitle)->
-            val c=card()
-            c.addView(text(title,17f,true,darkGreen))
-            c.addView(gap(6));c.addView(text(subtitle,13f,false,muted))
-            c.setOnClickListener{page=destination;render()}
-            pageBody.addView(c)
+        pageTitle("Tu centro de control.","Organiza tus compromisos y decide cómo usar tus datos.")
+        listOf(Triple("Pagos y suscripciones","Pagos","calendar"),Triple("Presupuestos","Presupuestos","budget"),Triple("Asistente local","Asistente","spark")).forEach{(title,destination,icon)->
+            pageBody.addView(actionTile(icon,title,when(destination){"Pagos"->"Recordatorios y compromisos del mes";"Presupuestos"->"Límites que tú defines por categoría";else->"Explora tus registros con preguntas"}){go(destination)})
+            pageBody.addView(gap(10))
         }
         sectionTitle("Datos y privacidad")
         pageBody.addView(autoSyncTile())
@@ -403,73 +430,55 @@ class MainActivity : Activity() {
     }
 
     private fun monthsPage(){
-        sectionTitle("Tus reportes")
-        pageBody.addView(text("Revisa tus gastos, ingresos confirmados y operaciones pendientes. Los traslados internos no cuentan como consumo.",13f,false,muted))
-        pageBody.addView(gap(14))
-        val options=db.monthsAvailable()
-        val monthOptions=(options + selectedMonth).distinct().sortedDescending()
-        val chooser=dropdown(monthOptions.map{monthLabel(it)})
-        chooser.setSelection(monthOptions.indexOf(selectedMonth).coerceAtLeast(0))
-        val chooseCard=card()
-        chooseCard.addView(text("Selecciona el mes",12f,true,muted))
-        chooseCard.addView(chooser)
-        chooseCard.addView(gap(7))
-        chooseCard.addView(miniButton("Ver reporte seleccionado"){
-            selectedMonth=monthOptions[chooser.selectedItemPosition];render()
-        })
-        pageBody.addView(chooseCard)
+        pageTitle("Tus números, en perspectiva.","Explora patrones y compara tus registros.")
+        val picker=LinearLayout(this).apply {
+            gravity=Gravity.CENTER_VERTICAL;background=drawable(Color.WHITE,16);setPadding(dp(4),dp(4),dp(4),dp(4))
+            addView(iconButton("back","Mes anterior"){selectedMonth=YearMonth.parse(selectedMonth).minusMonths(1).toString();render()})
+            addView(text(monthLabel(selectedMonth),16f,true).apply {
+                gravity=Gravity.CENTER;minHeight=dp(48);touch(this){
+                    val options=(db.monthsAvailable()+selectedMonth).distinct().sortedDescending()
+                    AlertDialog.Builder(this@MainActivity).setTitle("Elegir mes").setItems(options.map{monthLabel(it)}.toTypedArray()){_,i->selectedMonth=options[i];render()}.show()
+                }
+            },LinearLayout.LayoutParams(0,-2,1f))
+            addView(iconButton("next","Mes siguiente"){selectedMonth=YearMonth.parse(selectedMonth).plusMonths(1).toString();render()})
+        };pageBody.addView(picker);pageBody.addView(gap(16))
         val r=db.monthReport(selectedMonth)
+        val previous=db.monthReport(YearMonth.parse(selectedMonth).minusMonths(1).toString())
         val total=card()
-        total.addView(text(monthLabel(selectedMonth).uppercase(Locale.getDefault()),12f,true,muted))
-        total.addView(gap(5))
-        total.addView(text("Gastos netos",13f,false,muted))
-        total.addView(text(money(r.expenses),30f,true,darkGreen))
-        total.addView(gap(9))
-        total.addView(row("Ingresos confirmados",money(r.income),green))
-        total.addView(gap(8));total.addView(row("Débitos por revisar",money(r.pendingDebits),red))
-        total.addView(gap(8));total.addView(row("Créditos por revisar",money(r.pendingCredits),green))
-        total.addView(gap(8));total.addView(row("Traslados entre cuentas (salida)",money(r.transferOut)))
-        total.addView(gap(8));total.addView(row("Traslados entre cuentas (entrada)",money(r.transferIn)))
-        total.addView(gap(8));total.addView(row("Balance confirmado del mes",money(r.income-r.expenses),if(r.income-r.expenses<0)red else green))
-        total.addView(gap(5));total.addView(text("Ingresos menos gastos netos; no es el saldo bancario.",12f,false,muted))
-        total.addView(gap(9));total.addView(text("${r.count} movimientos registrados · ${r.pendingCount} pendientes de revisión",12f,false,muted))
+        val head=LinearLayout(this).apply{gravity=Gravity.CENTER_VERTICAL}
+        head.addView(text("GASTOS NETOS",11f,true,muted),LinearLayout.LayoutParams(0,-2,1f))
+        head.addView(pill(if(selectedMonth==FinanceDb.ym())"Mes en curso" else "Resumen mensual"));total.addView(head)
+        total.addView(gap(11));total.addView(text(money(r.expenses),34f,true))
+        if(!amountsHidden() && r.count>0 && previous.count>0)ReportMath.changePercent(r.expenses,previous.expenses)?.let {
+            total.addView(gap(7));total.addView(text("$it frente al mes anterior",12f,true,if(r.expenses>previous.expenses)red else green))
+        }
+        total.addView(gap(10));total.addView(text("Compras menos devoluciones · ${r.count} movimientos",12f,false,muted))
         pageBody.addView(total)
-        val prev=java.util.Calendar.getInstance().apply {
-            time=SimpleDateFormat("yyyy-MM-dd",Locale.US).parse("$selectedMonth-01")!!
-            add(Calendar.MONTH,-1)
-        }
-        val prevMonth=SimpleDateFormat("yyyy-MM",Locale.US).format(prev.time)
-        val prevReport=db.monthReport(prevMonth)
-        val compare=card()
-        compare.addView(text("Frente a ${monthLabel(prevMonth)}",15f,true))
-        compare.addView(gap(7))
-        if(prevReport.count==0L || r.count==0L)compare.addView(text("No hay datos suficientes para comparar ambos meses.",13f,false,muted))
-        else {
-            if(selectedMonth==FinanceDb.ym()) {
-                compare.addView(text("Mes en curso frente al mes anterior completo: los períodos tienen distinta duración.",12f,false,muted))
-                compare.addView(gap(7))
-            }
-            val delta=r.expenses-prevReport.expenses
-            compare.addView(row("Gasto anterior",money(prevReport.expenses)))
-            compare.addView(gap(7));compare.addView(row("Variación",(if(delta>=0)"+" else "−")+money(kotlin.math.abs(delta)),if(delta>0)red else green))
-            if(!amountsHidden()) ReportMath.changePercent(r.expenses,prevReport.expenses)?.let {
-                compare.addView(gap(5));compare.addView(text("$it respecto al gasto anterior",12f,false,muted))
-            }
-        }
-        pageBody.addView(compare)
-        sectionTitle("Tu evolución")
+        pageBody.addView(metricPair(metric("Ingresos",r.income,"down",green),metric("Balance del mes",r.income-r.expenses,"chart",if(r.income-r.expenses<0)red else green)))
         pageBody.addView(trendCard(selectedMonth))
         categoryCard(selectedMonth)
-        pageBody.addView(button("Exportar reporte de ${monthLabel(selectedMonth)} (CSV)"){
+        pulseCard(selectedMonth)
+        val merchants=readModel.topMerchants(selectedMonth)
+        if(merchants.isNotEmpty()) {
+            sectionTitle("Comercios principales")
+            val box=card();merchants.forEachIndexed{i,(name,amount)->
+                box.addView(row(name,money(amount)));if(i<merchants.lastIndex)box.addView(divider())
+            };box.addView(gap(10));box.addView(text("Gasto neto agrupado por nombre registrado.",11f,false,muted));pageBody.addView(box)
+        }
+        val info=card()
+        info.addView(row("Por revisar","${r.pendingCount} movimientos"));info.addView(divider())
+        info.addView(row("Débitos pendientes",money(r.pendingDebits)));info.addView(gap(8));info.addView(row("Abonos pendientes",money(r.pendingCredits)))
+        info.addView(divider());info.addView(row("Traslados enviados",money(r.transferOut)));info.addView(gap(8));info.addView(row("Traslados recibidos",money(r.transferIn)))
+        info.addView(gap(12));info.addView(text("El balance es ingreso menos gasto neto. Los pendientes y traslados se muestran aparte.",12f,false,muted))
+        if(selectedMonth==FinanceDb.ym()) {info.addView(gap(8));info.addView(text("Comparación de un mes en curso con el anterior completo: los períodos tienen distinta duración.",12f,false,muted))}
+        pageBody.addView(info)
+        pageBody.addView(button("Exportar reporte CSV"){
             monthForExport=selectedMonth
-            val intent=Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-                addCategory(Intent.CATEGORY_OPENABLE);type="text/csv"
-                putExtra(Intent.EXTRA_TITLE,"mis-finanzas-$selectedMonth.csv")
-            }
-            startActivityForResult(intent,703)
+            startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply{
+                addCategory(Intent.CATEGORY_OPENABLE);type="text/csv";putExtra(Intent.EXTRA_TITLE,"mis-finanzas-$selectedMonth.csv")
+            },703)
         })
-        pageBody.addView(gap(11))
-        pageBody.addView(text("Los SMS pueden estar incompletos. Esta pantalla es un análisis de los mensajes detectados, no un estado de cuenta oficial.",12f,false,muted))
+        pageBody.addView(gap(12));pageBody.addView(text("Basado en los movimientos registrados. No sustituye el estado de cuenta del banco.",12f,false,muted))
     }
 
     private fun monthLabel(value:String):String = try {
@@ -509,158 +518,179 @@ class MainActivity : Activity() {
         dialog.show()
     }
 
-    private fun trendCard(month: String): LinearLayout = card().apply {
-        addView(text("Ingresos y gastos · 6 meses",16f,true))
-        addView(gap(5))
-        addView(text("Escala en Q · Verde: ingresos · Coral: gastos netos",12f,false,muted))
-        addView(gap(12))
-        if(amountsHidden()) addView(text("Gráfica oculta. Pulsa Ver Q para mostrarla.",14f,false,muted))
+    private fun meter(amount:Long,total:Long,tint:Int=green):ProgressBar=ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal).apply {
+        max=1000;progress=if(total<=0)0 else (amount.toDouble()/total*1000).toInt().coerceIn(0,1000)
+        progressTintList=ColorStateList.valueOf(tint);progressBackgroundTintList=ColorStateList.valueOf(FinanceDesign.line)
+        layoutParams=LinearLayout.LayoutParams(-1,dp(7))
+        contentDescription=if(total>0) "${ReportMath.share(amount,total)} por ciento" else "Sin límite definido"
+    }
+    private fun trendCard(month:String):LinearLayout=card().apply {
+        addView(text("Evolución del dinero",18f,true));addView(gap(5));addView(text("Ingresos y gastos netos · Quetzales",12f,false,muted));addView(gap(14))
+        addView(segments(listOf("3 meses","6 meses","12 meses"),listOf(3,6,12).indexOf(chartMonths)){
+            chartMonths=listOf(3,6,12)[it];render(true)
+        });addView(gap(10))
+        addView(segments(listOf("Líneas","Barras"),if(chartLines)0 else 1){chartLines=it==0;render(true)})
+        addView(gap(14))
+        if(amountsHidden()) addView(text("Gráfica oculta. Pulsa el ojo para mostrarla.",13f,false,muted))
         else {
-            val reports=ReportMath.monthsEndingAt(month).map { db.monthReport(it) }
-            addView(FinanceTrendView(this@MainActivity,reports,month) {
-                selectedMonth=it;page="Meses";render()
-            },LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,dp(240)))
-            addView(text("Toca un mes para ver su reporte. — indica que no hay movimientos registrados.",12f,false,muted))
-            if(reports.any { it.expenses<0 }) {
-                addView(text("Las devoluciones que superan las compras se muestran bajo cero.",12f,false,muted))
-            }
-            // Text alternative also supports screen readers and exact comparisons.
-            addView(miniButton("Ver cifras de los 6 meses") {
-                alert("Evolución en quetzales",reports.joinToString("\n\n") {
-                    "${monthLabel(it.ym)}\nIngresos: ${money(it.income)} · Gastos netos: ${money(it.expenses)}" +
-                        if(it.count==0L) "\nSin movimientos registrados" else ""
+            val reports=ReportMath.monthsEndingAt(month,chartMonths).map{db.monthReport(it)}
+            addView(FinanceTrendView(this@MainActivity,reports,month,chartLines){selectedMonth=it;go("Meses")},LinearLayout.LayoutParams(-1,dp(230)))
+            val legend=LinearLayout(this@MainActivity).apply{gravity=Gravity.CENTER}
+            legend.addView(pill("Ingresos",green,softGreen));legend.addView(View(this@MainActivity),LinearLayout.LayoutParams(dp(10),1));legend.addView(pill("Gastos",red,0xffffedf0.toInt()))
+            addView(legend);addView(gap(10));addView(text("Toca un mes para explorarlo. — indica que no hay registros; las líneas se interrumpen en esos meses.",11f,false,muted))
+            addView(gap(10));addView(miniButton("Ver cifras del período"){
+                alert("Ingresos y gastos",reports.joinToString("\n\n"){
+                    "${monthLabel(it.ym)}\nIngresos ${money(it.income)} · Gastos netos ${money(it.expenses)}"+if(it.count==0L)"\nSin movimientos registrados" else ""
                 })
             })
         }
     }
-
-    private fun categoryCard(month: String) {
-        sectionTitle("Distribución de gastos")
-        val cats=db.monthCategories(month)
+    private fun pulseCard(month:String) {
+        val daily=readModel.dailyNet(month).take(FinanceAnalysis.chartDays(month))
+        val c=card()
+        c.addView(text("El ritmo de tu mes",18f,true));c.addView(gap(5));c.addView(text("Gasto neto acumulado por día",12f,false,muted));c.addView(gap(12))
+        if(amountsHidden())c.addView(text("Gráfica oculta. Pulsa el ojo para mostrarla.",13f,false,muted))
+        else if(db.monthReport(month).count==0L)c.addView(text("Este mes aún no tiene movimientos registrados.",14f,false,muted))
+        else {
+            c.addView(ExpensePulseView(this,daily),LinearLayout.LayoutParams(-1,dp(160)))
+            c.addView(gap(6));c.addView(row("Acumulado al día ${daily.size}",money(daily.sum())))
+            c.addView(gap(8));c.addView(text("Incluye devoluciones. Solo registros, sin proyectar gastos futuros.",11f,false,muted))
+        };pageBody.addView(c)
+    }
+    private fun categoryCard(month:String,compact:Boolean=false) {
+        sectionTitle("¿Dónde se va tu dinero?")
+        val cats=db.monthCategories(month);val total=cats.sumOf{it.second.coerceAtLeast(0)}
         val c=card()
         if(cats.isEmpty()) {
-            c.addView(text("Sin gastos clasificados",16f,true))
-            c.addView(gap(5))
-            c.addView(text("Registra una compra o revisa tus movimientos pendientes para ver su distribución.",14f,false,muted))
+            c.addView(iconBubble("chart"));c.addView(gap(12));c.addView(text("Tu distribución aparecerá aquí",16f,true));c.addView(gap(5))
+            c.addView(text("Clasifica tus compras y descubre tus categorías principales.",13f,false,muted))
         } else {
-            val positiveTotal=cats.sumOf { it.second.coerceAtLeast(0) }
-            c.addView(text("Porcentaje de categorías con gasto neto positivo. Las devoluciones se descuentan de su categoría.",12f,false,muted))
-            cats.forEach { (name,amount) ->
-                val share=ReportMath.share(amount,positiveTotal)
-                val item=LinearLayout(this).apply {
-                    orientation=LinearLayout.VERTICAL;setPadding(0,dp(14),0,dp(10));minimumHeight=dp(56)
-                    isFocusable=true
-                    addView(row("$name  ›",money(amount)))
-                    if(!amountsHidden()) {
-                        addView(gap(5))
-                        addView(text(if(amount<0) "Devoluciones superiores a compras" else "$share% del gasto distribuido",12f,false,muted))
-                        addView(ProgressBar(this@MainActivity,null,android.R.attr.progressBarStyleHorizontal).apply {
-                            max=100;progress=share
-                            progressTintList=ColorStateList.valueOf(green)
-                            progressBackgroundTintList=ColorStateList.valueOf(softGreen)
-                        })
-                    }
-                    contentDescription="$name. ${money(amount)}. Ver movimientos de la categoría"
-                    setOnClickListener { categoryDetails(month,name) }
+            if(!amountsHidden() && total>0) {
+                val chartRow=LinearLayout(this).apply{gravity=Gravity.CENTER_VERTICAL}
+                chartRow.addView(CategoryDonutView(this,cats),LinearLayout.LayoutParams(dp(152),dp(160)))
+                val legend=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(10),0,0,0)}
+                cats.take(3).forEachIndexed{i,(name,amount)->
+                    legend.addView(text("●  $name",12f,true,FinanceDesign.categoryColors[i%FinanceDesign.categoryColors.size]))
+                    legend.addView(text(if(amount>0) "${ReportMath.share(amount,total)}% del gasto" else "Devolución neta",11f,false,muted));legend.addView(gap(10))
                 }
-                c.addView(item)
+                chartRow.addView(legend,LinearLayout.LayoutParams(0,-2,1f));c.addView(chartRow);c.addView(divider())
             }
+            cats.take(if(compact)3 else Int.MAX_VALUE).forEachIndexed {i,(name,amount)->
+                val item=LinearLayout(this).apply {
+                    gravity=Gravity.CENTER_VERTICAL;setPadding(0,dp(9),0,dp(9));minimumHeight=dp(54)
+                    addView(iconBubble(FinanceDesign.categoryIcon(name),FinanceDesign.categoryColors[i%FinanceDesign.categoryColors.size],0xfff1f5f8.toInt(),36))
+                    addView(text(name,13f,true).apply{setPadding(dp(10),0,dp(6),0)},LinearLayout.LayoutParams(0,-2,1f))
+                    addView(text(money(amount),14f,true))
+                    contentDescription="$name. ${money(amount)}. Ver movimientos";touch(this){categoryDetails(month,name)}
+                };c.addView(item)
+            }
+            c.addView(gap(8));c.addView(text("Dona: proporción del gasto neto positivo. Las devoluciones se descuentan de cada categoría.",11f,false,muted))
+            if(compact){c.addView(gap(12));c.addView(miniButton("Explorar el reporte completo"){selectedMonth=month;go("Meses")})}
+        };pageBody.addView(c)
+    }
+    private fun transactionRow(t:FinanceDb.Tx):LinearLayout {
+        val positive=t.kind in listOf("INCOME","PENDING_CREDIT","REFUND","TRANSFER_IN")
+        val transfer=t.kind in listOf("TRANSFER_IN","TRANSFER_OUT")
+        val pending=t.kind in listOf("PENDING_DEBIT","PENDING_CREDIT")
+        val tint=if(transfer)muted else if(positive)green else red
+        return LinearLayout(this).apply {
+            gravity=Gravity.CENTER_VERTICAL;background=drawable(Color.WHITE,18);setPadding(dp(13),dp(14),dp(13),dp(14))
+            layoutParams=LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(8)}
+            addView(iconBubble(if(pending)"clock" else if(transfer)"transfer" else if(t.kind=="INCOME")"down" else FinanceDesign.categoryIcon(t.category),tint,if(positive)softGreen else 0xfff3f5f9.toInt(),42))
+            val details=LinearLayout(this@MainActivity).apply {
+                orientation=LinearLayout.VERTICAL;setPadding(dp(11),0,dp(8),0)
+                addView(text(t.merchant,13f,true).apply{maxLines=2})
+                addView(gap(4));addView(text(if(pending)"Por revisar" else t.category,11f,false,if(pending)red else muted))
+            };addView(details,LinearLayout.LayoutParams(0,-2,1f))
+            val values=LinearLayout(this@MainActivity).apply {
+                orientation=LinearLayout.VERTICAL;gravity=Gravity.END
+                addView(text((if(positive)"+" else "−")+money(t.cents),14f,true,tint));addView(gap(4))
+                addView(text(SimpleDateFormat("dd MMM",Locale("es","GT")).format(Date(t.whenMs)),10.5f,false,muted))
+            };addView(values);contentDescription="${t.merchant}. ${kindLabel(t.kind)}. ${money(t.cents)}. Revisar movimiento";touch(this){txDetail(t)}
         }
-        pageBody.addView(c)
     }
 
     private fun home(){
-        sectionTitle("Tu panorama")
-        pageBody.addView(text(monthLabel(FinanceDb.ym()),14f,false,muted))
-        pageBody.addView(gap(14))
-        val accounts=db.accounts();val known=accounts.mapNotNull{db.accountBalance(it)}.sum()
-        val unknown=accounts.count{it.opening==null}
-        val totals=db.monthTotals()
-        val summary=card().apply{background=drawable(darkGreen,23)}
-        summary.addView(text("SALDO TOTAL CONOCIDO",12f,true,Color.rgb(201,231,222)))
-        summary.addView(gap(5))
-        summary.addView(text(if(accounts.isEmpty() || unknown==accounts.size) "—" else money(known),33f,true,Color.WHITE))
-        summary.addView(gap(5))
-        summary.addView(text(if(accounts.isEmpty())"Agrega tus cuentas para empezar"
-            else if(unknown==accounts.size) "Todavía no sabemos tu saldo real · No es Q0"
-            else if(unknown>0)"⚠ $unknown cuenta(s) sin saldo real · Total parcial"
-            else "Suma de saldos ingresados y movimientos nuevos",
-            12f,false,Color.rgb(225,241,235)))
-        pageBody.addView(summary)
-        if(unknown>0) {
-            pageBody.addView(miniButton("Configurar los saldos reales de $unknown cuenta(s)  ›") {
-                page="Cuentas";render()
-            })
-            pageBody.addView(gap(10))
+        pageTitle("Tu dinero, con claridad.",monthLabel(FinanceDb.ym()))
+        val accounts=db.accounts();val unknown=accounts.count{it.opening==null}
+        val known=accounts.mapNotNull{db.accountBalance(it)}.sum();val report=db.monthReport(FinanceDb.ym())
+        val hero=card().apply{
+            background=GradientDrawable(GradientDrawable.Orientation.TL_BR,intArrayOf(0xff174c54.toInt(),0xff102b38.toInt())).apply{cornerRadius=dp(24).toFloat()}
+            setPadding(dp(22),dp(20),dp(22),dp(20))
         }
-        val summary2=card().apply {
-            addView(text("Este mes",17f,true))
-            addView(gap(12))
-            addView(row("Gastos netos",money(totals.first),red))
-            addView(gap(9));addView(row("Ingresos confirmados",money(totals.second),green))
-            addView(gap(9));addView(row("Balance confirmado",money(totals.second-totals.first)))
-            addView(gap(7));addView(text("Ingresos menos gastos; excluye pendientes y traslados.",12f,false,muted))
+        val line=LinearLayout(this).apply{gravity=Gravity.CENTER_VERTICAL}
+        line.addView(text("SALDO CONOCIDO",11f,true,0xffb8dbd5.toInt()),LinearLayout.LayoutParams(0,-2,1f))
+        line.addView(iconBubble("wallet",0xff8fe6d2.toInt(),0x22ffffff,34));hero.addView(line)
+        hero.addView(gap(9))
+        hero.addView(text(if(accounts.isEmpty()||unknown==accounts.size)"—" else money(known),34f,true,Color.WHITE).apply {
+            setSingleLine(true);setAutoSizeTextTypeUniformWithConfiguration(20,34,1,android.util.TypedValue.COMPLEX_UNIT_SP)
+        })
+        hero.addView(gap(8));hero.addView(text(when {
+            accounts.isEmpty()->"Configura tu primera cuenta para comenzar"
+            unknown==accounts.size->"Configura tus saldos reales para ver el total"
+            unknown>0->"Total parcial · $unknown cuenta(s) sin saldo"
+            else->"${accounts.size} cuenta(s) · Saldo estimado de tus registros"
+        },12f,false,0xffc0dcd9.toInt()))
+        hero.addView(gap(16));hero.addView(text("Balance del mes  ${money(report.income-report.expenses)}",12f,true,0xff91ead0.toInt()))
+        touch(hero){go("Cuentas")};hero.contentDescription="Resumen de cuentas. Abrir Cuentas";pageBody.addView(hero)
+        pageBody.addView(metricPair(metric("Ingresos del mes",report.income,"down",green),metric("Gastos netos",report.expenses,"up",red)))
+        pageBody.addView(quickActions(listOf(QuickAction("Agregar","add"){manualDialog()},QuickAction("Actualizar","refresh"){refreshRecentSms()},QuickAction("Presupuestos","budget"){go("Presupuestos")},QuickAction("Pagos","calendar"){go("Pagos")})))
+        if(report.pendingCount>0){
+            pageBody.addView(actionTile("clock","${report.pendingCount} ${if(report.pendingCount==1L)"movimiento por revisar" else "movimientos por revisar"}","Dales una categoría y mejora tu panorama"){
+                movementFilter="Por revisar";movementQuery="";go("Movimientos")
+            });pageBody.addView(gap(14))
         }
-        pageBody.addView(summary2)
-        if(totals.third>0) {
-            pageBody.addView(actionTile("!", "${totals.third} ${if(totals.third==1L) "movimiento" else "movimientos"} por revisar", "Confirma su tipo para mejorar tus reportes") {
-                movementFilter="Por revisar";movementQuery="";page="Movimientos";render()
-            })
-            pageBody.addView(gap(12))
+        val spotlight=actionTile("spark","Dale contexto a tus números","Explora tu mes con el asistente local"){go("Asistente")}
+        spotlight.background=drawable(0xffeeebfa.toInt(),20);pageBody.addView(spotlight);pageBody.addView(gap(18))
+        pulseCard(FinanceDb.ym())
+        categoryCard(FinanceDb.ym(),true)
+        val budgets=db.budgets().take(2)
+        if(budgets.isNotEmpty()){
+            sectionTitle("Tus límites, a la vista")
+            val c=card();budgets.forEachIndexed {i,b ->
+                val used=db.categorySpent(b.category);c.addView(row(b.category,"${money(used)} / ${money(b.cents)}"))
+                if(!amountsHidden()) {c.addView(gap(7));c.addView(meter(used,b.cents,if(used>b.cents)red else green))}
+                if(i<budgets.lastIndex)c.addView(divider())
+            };c.addView(gap(12));c.addView(miniButton("Ver presupuestos"){go("Presupuestos")});pageBody.addView(c)
         }
-        pageBody.addView(trendCard(FinanceDb.ym()))
-        if(accounts.isEmpty())pageBody.addView(button("+ Configurar mi primera cuenta"){addAccountDialog()})
-        pageBody.addView(button("▥  Ver reportes mensuales y gráficas"){page="Meses";render()})
-        pageBody.addView(gap(12))
-        sectionTitle("Accesos rápidos")
-        pageBody.addView(miniButton("+ Agregar gasto o ingreso manual"){manualDialog()})
-        pageBody.addView(gap(8))
-        pageBody.addView(miniButton("Importar mensajes antiguos pegándolos"){pasteImportDialog()})
-        pageBody.addView(gap(8))
-        pageBody.addView(actionTile("↻", "Actualizar movimientos", "Leer SMS recientes sin duplicarlos") { refreshRecentSms() })
-        pageBody.addView(gap(8))
-        pageBody.addView(autoSyncTile())
-        pageBody.addView(gap(15))
-        categoryCard(FinanceDb.ym())
-        val upcoming=db.bills().filter{it.paidYm!=FinanceDb.ym()}
-        if(upcoming.isNotEmpty()){
-            sectionTitle("Pendientes del mes")
-            val c=card();upcoming.forEach{c.addView(row("Día ${it.day} · ${it.title}",money(it.cents)));c.addView(gap(9))}
-            pageBody.addView(c)
-        }
+        sectionTitle("Últimos movimientos")
+        val recent=db.transactions(3)
+        if(recent.isEmpty())pageBody.addView(actionTile("add","Tu historia empieza aquí","Registra un movimiento o importa tus SMS"){manualDialog()})
+        else recent.forEach{pageBody.addView(transactionRow(it))}
+        pageBody.addView(gap(6));pageBody.addView(miniButton("Ver todos los movimientos"){movementFilter="Todos";movementQuery="";go("Movimientos")})
     }
 
     private fun accounts(){
-        pageBody.addView(button("+ Agregar cuenta o efectivo"){addAccountDialog()})
-        pageBody.addView(gap(8));pageBody.addView(miniButton("⇄ Transferir entre mis cuentas"){transferDialog()})
-        pageBody.addView(gap(8));pageBody.addView(miniButton("Ver cobertura de SMS importados"){historyCoverageDialog()})
-        pageBody.addView(gap(8));pageBody.addView(miniButton("Conciliar saldo con mi banco"){reconciliationDialog()})
-        pageBody.addView(gap(8));pageBody.addView(miniButton("Guardar / recuperar copia de seguridad"){backupMenu()})
-        pageBody.addView(gap(15))
-        pageBody.addView(text("Para quitar 'Saldo pendiente', toca Actualizar saldo real en cada cuenta e ingresa el saldo que muestra el banco AHORA (con centavos). Los SMS anteriores sirven para reportes y no se descuentan otra vez. Revisa si las cuentas de BI son distintas o duplicadas.",13f,false,muted))
-        pageBody.addView(gap(15))
-        db.accounts().forEach{a->
-            val c=card();c.addView(row("${a.bank} · ${a.type}",accountLabel(a.last4)))
-            c.addView(gap(6));c.addView(text(a.name,16f,true))
-            c.addView(gap(9))
-            c.addView(text(db.accountBalance(a)?.let{money(it)} ?: "Saldo pendiente de configurar",21f,true,if(a.opening==null)red else ink))
-            c.addView(gap(12))
-            c.addView(miniButton("Actualizar saldo real"){balanceDialog(a)})
-            pageBody.addView(c)
+        pageTitle("Todo en un lugar.","Tus cuentas, tu efectivo y sus saldos estimados.")
+        pageBody.addView(quickActions(listOf(QuickAction("Agregar","add"){addAccountDialog()},QuickAction("Transferir","transfer"){transferDialog()},QuickAction("Respaldo","download"){backupMenu()},QuickAction("Conciliar","shield"){reconciliationDialog()})))
+        val accounts=db.accounts()
+        if(accounts.isEmpty())pageBody.addView(actionTile("wallet","Agrega tu primera cuenta","Puedes dejar el saldo pendiente si no lo conoces"){addAccountDialog()})
+        accounts.forEachIndexed {i,a ->
+            val tint=FinanceDesign.categoryColors[i%FinanceDesign.categoryColors.size]
+            val c=card();val top=LinearLayout(this).apply{gravity=Gravity.CENTER_VERTICAL}
+            top.addView(iconBubble("wallet",tint,0xfff0f4f8.toInt(),42))
+            val labels=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(11),0,0,0);addView(text(a.bank,13f,true));addView(text(a.type,11f,false,muted))}
+            top.addView(labels,LinearLayout.LayoutParams(0,-2,1f));top.addView(pill(accountLabel(a.last4),muted,0xfff0f4f8.toInt()));c.addView(top)
+            c.addView(gap(18));c.addView(text(a.name,14f,false,muted));c.addView(gap(5))
+            c.addView(text(db.accountBalance(a)?.let{money(it)}?:"Saldo por configurar",25f,true,if(a.opening==null)muted else ink))
+            c.addView(gap(16));c.addView(miniButton("Actualizar saldo real"){balanceDialog(a)});pageBody.addView(c)
         }
+        pageBody.addView(text("El saldo real que registres será el nuevo punto de partida. Los movimientos anteriores no se descuentan otra vez.",12f,false,muted))
+        pageBody.addView(gap(12));pageBody.addView(miniButton("Ver cobertura del historial"){historyCoverageDialog()})
     }
+
     private fun addAccountDialog(){
         val banks=listOf("Banrural","Banco Industrial","G&T Continental","BAC","Promerica","Bantrab","Efectivo","Otro")
         val bank=dropdown(banks);val name=edit("Nombre: Ahorros, Principal...")
         val last=edit("Últimos 4 dígitos (opcional)")
         last.inputType=InputType.TYPE_CLASS_NUMBER
         val type=dropdown(listOf("Monetaria","Ahorro","Tarjeta","Efectivo","Otro"))
-        val balance=edit("Saldo actual en Q (ej. 2500.00)",numeric=true)
+        val balance=edit("Saldo actual en Q (opcional)",numeric=true)
         val view=block(text("Banco",13f),bank,name,last,text("Tipo de cuenta",13f),type,balance)
         AlertDialog.Builder(this).setTitle("Nueva cuenta").setView(view).setNegativeButton("Cancelar",null)
             .setPositiveButton("Guardar"){_,_->
                 val b=FinanceDb.parseAmount(balance.text.toString())
-                if(name.text.isBlank()||b==null){toast("Escribe nombre y saldo válido. Si no lo sabes, escribe 0 y actualízalo luego.");return@setPositiveButton}
+                if(name.text.isBlank()||(balance.text.isNotBlank()&&b==null)){toast("Escribe un nombre y un saldo válido, o deja el saldo pendiente.");return@setPositiveButton}
                 db.createAccount(banks[bank.selectedItemPosition],name.text.toString(),last.text.toString(),type.selectedItem.toString(),b)
                 render()
             }.show()
@@ -676,82 +706,57 @@ class MainActivity : Activity() {
     }
 
     private fun movements(){
-        sectionTitle("Tus movimientos")
-        pageBody.addView(button("+ Agregar movimiento"){manualDialog()})
-        pageBody.addView(gap(10))
-        pageBody.addView(actionTile("↻", "Actualizar movimientos", "Leer SMS recientes sin duplicarlos") { refreshRecentSms() })
-        pageBody.addView(gap(14))
-        val search=edit("Buscar comercio, categoría o cuenta",movementQuery)
-        search.contentDescription="Buscar movimientos por comercio, categoría o cuenta"
-        pageBody.addView(search)
+        pageTitle("Cada movimiento cuenta.","Encuentra, revisa y organiza tu historial.")
+        val actions=LinearLayout(this).apply {
+            addView(button("Agregar movimiento"){manualDialog()},LinearLayout.LayoutParams(0,-2,1f))
+            addView(iconButton("refresh","Actualizar movimientos"){refreshRecentSms()})
+        };pageBody.addView(actions);pageBody.addView(gap(14))
+        val search=edit("Buscar comercio, categoría o cuenta",movementQuery).apply {
+            setCompoundDrawablesRelative(FinanceIcon("search",muted,dp(19)),null,null,null);compoundDrawablePadding=dp(10)
+            contentDescription="Buscar movimientos por comercio, categoría o cuenta"
+        };pageBody.addView(search);pageBody.addView(gap(12))
         val filters=listOf("Todos","Por revisar","Gastos","Ingresos","Traslados")
-        val selector=dropdown(filters)
-        selector.contentDescription="Filtrar movimientos por tipo"
-        selector.setSelection(filters.indexOf(movementFilter).coerceAtLeast(0))
-        pageBody.addView(selector)
-        val resultText=text("",12f,false,muted)
-        pageBody.addView(resultText)
-        pageBody.addView(gap(10))
-        val history=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL }
-        pageBody.addView(history)
+        val filterRow=LinearLayout(this)
+        val scroller=HorizontalScrollView(this).apply{isHorizontalScrollBarEnabled=false;addView(filterRow)}
+        pageBody.addView(scroller);pageBody.addView(gap(13))
+        val resultText=text("",11f,false,muted);pageBody.addView(resultText);pageBody.addView(gap(12))
+        val history=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL};pageBody.addView(history)
         val all=db.transactions(5000)
         fun updateHistory() {
             history.removeAllViews()
             val query=BankParser.fold(movementQuery.trim())
-            val filtered=all.filter { t ->
-                val typeMatches=when(movementFilter) {
-                    "Por revisar" -> t.kind in listOf("PENDING_DEBIT","PENDING_CREDIT")
-                    "Gastos" -> t.kind in listOf("EXPENSE","REFUND")
-                    "Ingresos" -> t.kind=="INCOME"
-                    "Traslados" -> t.kind in listOf("TRANSFER_IN","TRANSFER_OUT")
-                    else -> true
-                }
-                typeMatches && (query.isEmpty() || BankParser.fold("${t.merchant} ${t.category} ${t.accountLast4}").contains(query))
+            val filtered=all.filter{t ->
+                val typeMatches=when(movementFilter){"Por revisar"->t.kind in listOf("PENDING_DEBIT","PENDING_CREDIT");"Gastos"->t.kind in listOf("EXPENSE","REFUND");"Ingresos"->t.kind=="INCOME";"Traslados"->t.kind in listOf("TRANSFER_IN","TRANSFER_OUT");else->true}
+                typeMatches&&(query.isEmpty()||BankParser.fold("${t.merchant} ${t.category} ${t.accountLast4}").contains(query))
             }
-            resultText.text="${filtered.size} ${if(filtered.size==1) "resultado" else "resultados"} · búsqueda en los últimos ${all.size} movimientos (máximo 5,000)"
-            if(filtered.isEmpty()) history.addView(card().apply {
-                addView(text(if(all.isEmpty()) "Comienza tu historial" else "Sin resultados",17f,true))
-                addView(gap(6))
-                addView(text(if(all.isEmpty()) "Agrega un movimiento o importa tus SMS desde Más." else "Prueba otro comercio o selecciona Todos.",14f,false,muted))
+            resultText.text="${filtered.size} ${if(filtered.size==1)"resultado" else "resultados"} · últimos ${all.size} registros (máx. 5,000)"
+            if(filtered.isEmpty())history.addView(card().apply {
+                addView(iconBubble("search"));addView(gap(12));addView(text(if(all.isEmpty())"Comienza tu historial" else "Sin coincidencias",17f,true))
+                addView(gap(5));addView(text(if(all.isEmpty())"Agrega un movimiento o importa tus SMS desde Herramientas." else "Prueba otra búsqueda o selecciona Todos.",13f,false,muted))
             })
-            var previousDay=""
-            val dayFormat=SimpleDateFormat("dd MMM yyyy",Locale("es","GT"))
-            filtered.take(movementLimit).forEach { t ->
-                val day=dayFormat.format(Date(t.whenMs))
-                if(day!=previousDay) {
-                    history.addView(text(day,13f,true,muted));history.addView(gap(8));previousDay=day
-                }
-                val positive=t.kind in listOf("INCOME","PENDING_CREDIT","REFUND","TRANSFER_IN")
-                val pending=t.kind in listOf("PENDING_DEBIT","PENDING_CREDIT")
-                val transfer=t.kind in listOf("TRANSFER_IN","TRANSFER_OUT")
-                val c=card().apply {
-                    isFocusable=true
-                    setOnClickListener { txDetail(t) }
-                    addView(row(t.merchant,(if(positive) "+" else "−")+money(t.cents),if(transfer)muted else if(positive)green else red))
-                    addView(gap(6))
-                    addView(text("${kindLabel(t.kind)} · ${t.category}",12f,true,if(pending)red else muted))
-                    addView(text("${accountLabel(t.accountLast4.ifBlank { "manual" })} · ${SimpleDateFormat("HH:mm",Locale.US).format(Date(t.whenMs))}",12f,false,muted))
-                }
-                history.addView(c)
+            var previousDay="";val date=SimpleDateFormat("dd MMM yyyy",Locale("es","GT"))
+            filtered.take(movementLimit).forEach{t->
+                val day=date.format(Date(t.whenMs))
+                if(day!=previousDay){history.addView(gap(8));history.addView(text(day,12f,true,muted));history.addView(gap(9));previousDay=day}
+                history.addView(transactionRow(t))
             }
-            if(filtered.size>movementLimit) history.addView(miniButton("Mostrar 80 movimientos más") {
-                movementLimit+=80;updateHistory()
-            })
+            if(filtered.size>movementLimit)history.addView(miniButton("Mostrar 80 más"){movementLimit+=80;updateHistory()})
         }
-        search.addTextChangedListener(object: TextWatcher {
-            override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int) {}
-            override fun onTextChanged(s:CharSequence?,start:Int,before:Int,count:Int) {
-                movementQuery=s?.toString().orEmpty();movementLimit=80;updateHistory()
+        fun updateFilters(){
+            filterRow.removeAllViews()
+            filters.forEach { filter ->
+                val chip=text(filter,12f,true,if(movementFilter==filter)Color.WHITE else muted).apply {
+                    gravity=Gravity.CENTER;minHeight=dp(44);setPadding(dp(15),dp(10),dp(15),dp(10))
+                    background=drawable(if(movementFilter==filter)green else Color.WHITE,13);isSelected=movementFilter==filter
+                    touch(this){movementFilter=filter;movementLimit=80;updateFilters();updateHistory()}
+                };filterRow.addView(chip,LinearLayout.LayoutParams(-2,-2).apply{rightMargin=dp(7)})
             }
-            override fun afterTextChanged(s:Editable?) {}
-        })
-        selector.onItemSelectedListener=object: AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent:AdapterView<*>?,view:View?,position:Int,id:Long) {
-                movementFilter=filters[position];movementLimit=80;updateHistory()
-            }
-            override fun onNothingSelected(parent:AdapterView<*>?) {}
         }
-        updateHistory()
+        search.addTextChangedListener(object:TextWatcher {
+            override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int){}
+            override fun onTextChanged(s:CharSequence?,start:Int,before:Int,count:Int){movementQuery=s?.toString().orEmpty();movementLimit=80;updateHistory()}
+            override fun afterTextChanged(s:Editable?){}
+        });updateFilters();updateHistory()
     }
     private fun accountLabel(code:String):String = if(code.length==4 && code.all{it.isDigit()}) "••$code" else code
     private fun kindLabel(kind:String):String=kindLabels.getOrNull(kinds.indexOf(kind))?:kind
@@ -1009,6 +1014,9 @@ class MainActivity : Activity() {
     }
 
     private fun bills(){
+        pageTitle("Lo que viene.","Tus compromisos recurrentes, sin perderlos de vista.")
+        val scheduled=db.bills();val owed=scheduled.filter{it.paidYm!=FinanceDb.ym()}
+        pageBody.addView(metricPair(metric("Por pagar",owed.sumOf{it.cents},"calendar",red),metric("Marcado pagado",scheduled.filter{it.paidYm==FinanceDb.ym()}.sumOf{it.cents},"check",green)))
         pageBody.addView(button("+ Agregar pago recurrente"){addBillDialog()})
         pageBody.addView(gap(12))
         pageBody.addView(text("Para alquiler, Claro, suscripciones, gasolina u otros recordatorios mensuales. Marca cada obligación cuando ya la pagaste.",13f,false,muted))
@@ -1019,7 +1027,7 @@ class MainActivity : Activity() {
             val paid=bill.paidYm==FinanceDb.ym()
             val c=card()
             c.addView(row("${bill.title} · día ${bill.day}",money(bill.cents),if(paid)green else ink))
-            c.addView(gap(5));c.addView(text(if(paid)"✓ Pagado este mes" else "Pendiente · ${bill.category}",13f,false,if(paid)green else red))
+            c.addView(gap(5));c.addView(text(if(paid)"Pagado este mes" else "Pendiente · ${bill.category}",13f,false,if(paid)green else red))
             c.addView(gap(10))
             val matched=possiblePaidMovement(bill)
             if(!paid && matched!=null){
@@ -1047,6 +1055,7 @@ class MainActivity : Activity() {
             }.show()
     }
     private fun budgets(){
+        pageTitle("Haz espacio a lo importante.","Tus límites mensuales por categoría.")
         pageBody.addView(button("+ Asignar presupuesto mensual"){addBudgetDialog()})
         pageBody.addView(gap(15))
         val all=db.budgets()
@@ -1055,13 +1064,13 @@ class MainActivity : Activity() {
             val spent=db.categorySpent(budget.category)
             val left=budget.cents-spent
             val c=card()
-            c.addView(row(budget.category,"Límite ${money(budget.cents)}"))
-            c.addView(gap(8));c.addView(text("Gastado ${money(spent)} · ${if(left<0)"Excedido" else "Disponible"} ${money(kotlin.math.abs(left))}",14f,true,if(left<0)red else green))
-            c.addView(gap(8))
-            val bar=ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal).apply{
-                max=100;progress=if(budget.cents<=0)0 else ((spent*100)/budget.cents).toInt().coerceIn(0,100)
-                progressTintList=android.content.res.ColorStateList.valueOf(if(left<0)red else green)
-            };if(!amountsHidden())c.addView(bar)
+            val header=LinearLayout(this).apply{gravity=Gravity.CENTER_VERTICAL}
+            header.addView(iconBubble(FinanceDesign.categoryIcon(budget.category)))
+            header.addView(text(budget.category,16f,true).apply{setPadding(dp(11),0,0,0)},LinearLayout.LayoutParams(0,-2,1f))
+            header.addView(pill(if(left<0)"Superado" else "En control",if(left<0)red else green,if(left<0)0xffffedf0.toInt() else softGreen));c.addView(header)
+            c.addView(gap(18));c.addView(text(money(spent),26f,true));c.addView(gap(4));c.addView(text("de ${money(budget.cents)} asignados",12f,false,muted))
+            if(!amountsHidden()){c.addView(gap(16));c.addView(meter(spent,budget.cents,if(left<0)red else green))}
+            c.addView(gap(12));c.addView(row(if(left<0)"Exceso" else "Margen disponible",money(kotlin.math.abs(left)),if(left<0)red else green))
             c.addView(gap(10));c.addView(miniButton("Cambiar límite"){budgetDialogFor(budget.category)})
             pageBody.addView(c)
         }
@@ -1158,53 +1167,156 @@ class MainActivity : Activity() {
     }
 
     private fun assistant(){
-        sectionTitle("Asistente financiero local")
-        pageBody.addView(text("Analiza tu historial, presupuestos y recordatorios sin internet. En esta versión funciona con reglas, no con una IA generativa externa.",13f,false,muted))
-        pageBody.addView(gap(15))
-        val suggestions=listOf("¿Qué me falta pagar?","¿Cuánto tengo disponible?","¿Cuánto gasté en gasolina?","¿Dónde gasté más?","¿Puedo ahorrar este mes?")
-        suggestions.forEach { q ->
-            pageBody.addView(miniButton(q){showAdvice(q)})
-            pageBody.addView(gap(8))
+        val hero=card().apply {
+            background=GradientDrawable(GradientDrawable.Orientation.TL_BR,intArrayOf(0xffeeeafa.toInt(),0xffe8f5f4.toInt())).apply{cornerRadius=dp(24).toFloat()}
         }
-        pageBody.addView(gap(10))
-        val question=edit("Escribe tu pregunta...")
-        pageBody.addView(question);pageBody.addView(gap(9))
-        pageBody.addView(button("Consultar mis finanzas"){showAdvice(question.text.toString())})
+        hero.addView(iconBubble("spark",FinanceDesign.purple,Color.WHITE,48));hero.addView(gap(15))
+        hero.addView(text("Pregúntale a tus números.",27f,true));hero.addView(gap(8))
+        hero.addView(text("Una mirada más completa a tus gastos, tus límites y lo que viene.",14f,false,muted));hero.addView(gap(13))
+        hero.addView(pill("Privado · Sin internet",FinanceDesign.purple,Color.WHITE));pageBody.addView(hero)
+        pageBody.addView(text("Consultando ${monthLabel(selectedMonth)}",12f,true,muted));pageBody.addView(gap(13))
+        val report=db.monthReport(selectedMonth)
+        pageBody.addView(metricPair(metric("Balance del mes",report.income-report.expenses,"chart",green),metric("Gasto neto",report.expenses,"up",red)))
+        sectionTitle("Empieza por una pregunta")
+        listOf(
+            listOf("Resumen del mes","Comparar meses"),
+            listOf("Mis presupuestos","Comercios principales"),
+            listOf("Pagos pendientes","Mayor compra")
+        ).forEach { options ->
+            val line=LinearLayout(this)
+            options.forEachIndexed{i,label ->
+                val action=miniButton(label){askAssistant(label)}
+                action.minimumHeight=dp(58)
+                line.addView(action,LinearLayout.LayoutParams(0,-2,1f).apply{if(i==0)rightMargin=dp(8)})
+            };pageBody.addView(line);pageBody.addView(gap(8))
+        }
+        pageBody.addView(gap(4));pageBody.addView(actionTile("budget","Simular un ahorro","Explora un monto sin cambiar tus registros"){savingsSimulation()})
+        pageBody.addView(gap(18))
+        if(assistantQuestions.isEmpty()) {
+            val intro=card();intro.addView(text("Puedo ayudarte a explorar",15f,true));intro.addView(gap(7))
+            intro.addView(text("• ¿Cuánto gasté en comida el mes pasado?\n• ¿Qué cambió en octubre?\n• ¿Dónde gasté más en 2026-09?\n• ¿Cuál fue mi mayor compra?",13f,false,muted))
+            pageBody.addView(intro)
+        } else {
+            sectionTitle("Tu conversación")
+            assistantQuestions.forEach { question ->
+                val bubble=card().apply {background=drawable(0xffe9f3f1.toInt(),18);setPadding(dp(16),dp(13),dp(16),dp(13))}
+                bubble.addView(text(question,14f,true));pageBody.addView(bubble)
+                val answer=card();val head=LinearLayout(this).apply{gravity=Gravity.CENTER_VERTICAL}
+                head.addView(iconBubble("spark",FinanceDesign.purple,0xfff0edfc.toInt(),32));head.addView(text("Asistente",12f,true,FinanceDesign.purple).apply{setPadding(dp(9),0,0,0)});answer.addView(head)
+                answer.addView(gap(12));answer.addView(text(analysisReply(question),14f));pageBody.addView(answer)
+            }
+            pageBody.addView(miniButton("Limpiar conversación"){assistantQuestions.clear();render(true)});pageBody.addView(gap(12))
+        }
+        pageBody.addView(text("Asistente basado en reglas locales, sin IA externa. La conversación dura esta sesión.",11f,false,muted))
     }
-    private fun showAdvice(question:String){
-        val q=BankParser.fold(question)
-        val all=db.accounts();val missing=all.count{it.opening==null}
-        val total=all.mapNotNull{db.accountBalance(it)}.sum()
-        val owed=db.bills().filter{it.paidYm!=FinanceDb.ym()}
-        val payable=owed.sumOf{it.cents}
-        val totals=db.monthTotals()
-        val response=when{
-            q.contains("pagar")||q.contains("pendiente")||q.contains("debo")||q.contains("recuerda") ->
-                if(owed.isEmpty())"No has registrado pagos recurrentes pendientes este mes. Agrega tus obligaciones en la pestaña Pagos."
-                else "Te falta registrar como pagados ${owed.size} compromiso(s) por ${money(payable)}:\n"+
-                    owed.joinToString("\n"){"• Día ${it.day}: ${it.title} (${money(it.cents)})"}
-            q.contains("gasolina")||q.contains("comida")||q.contains("suscrip")||q.contains("servicio")||q.contains("cine") -> {
-                val category=when{q.contains("gasolina")->"Gasolina";q.contains("comida")->"Comida";q.contains("suscrip")->"Suscripciones";q.contains("servicio")->"Servicios";else->"Entretenimiento"}
-                val spent=db.categorySpent(category);val budget=db.budgets().find{it.category==category}
-                "En $category llevas ${money(spent)} de gastos netos este mes."+
-                    (budget?.let{" Tu límite es ${money(it.cents)} y ${if(it.cents>=spent)"te quedan ${money(it.cents-spent)}" else "lo superaste por ${money(spent-it.cents)}"}."}?:" Agrega un presupuesto para saber cuánto te queda.")
-            }
-            q.contains("donde")||q.contains("mas")||q.contains("categoria") -> {
-                val cat=db.breakdown().filter{it.second>0}.take(5)
-                if(cat.isEmpty())"Todavía no hay gastos clasificados de este mes."
-                else "Tus categorías más altas este mes son:\n"+cat.joinToString("\n"){"• ${it.first}: ${money(it.second)}"}
-            }
-            q.contains("ahorr")||q.contains("sobr") -> {
-                "Cuentas configuradas: ${money(total)}. Pagos registrados pendientes: ${money(payable)}. Diferencia orientativa: ${money(total-payable)}."+
-                    (if(missing>0)" Hay $missing cuentas sin saldo, por lo que es incompleta." else "")+
-                    " Esto NO descuenta gastos futuros no registrados ni sustituye el saldo bancario."
-            }
-            q.contains("tengo")||q.contains("saldo")||q.contains("disponible") ->
-                "El total calculado de tus cuentas con saldo configurado es ${money(total)}."+
-                    (if(missing>0)" Hay $missing cuenta(s) pendientes; no es tu total definitivo." else "")+
-                    " Recuerda comprobar tu saldo real y actualizarlo periódicamente."
-            else -> "Este mes tienes ${money(totals.first)} en gastos clasificados, ${money(totals.second)} en ingresos confirmados y ${totals.third} movimientos pendientes de revisar. Puedes preguntarme por gasolina, comida, pagos, saldos o ahorro."
+    private fun assistantComposer():LinearLayout=LinearLayout(this).apply {
+        gravity=Gravity.CENTER_VERTICAL;setPadding(dp(16),dp(10),dp(12),dp(10));setBackgroundColor(Color.WHITE)
+        val question=edit("Pregunta por tus finanzas…",assistantDraft).apply {
+            contentDescription="Escribe una pregunta para el asistente"
+            filters=arrayOf(android.text.InputFilter.LengthFilter(200))
+            background=drawable(bg,15);imeOptions=android.view.inputmethod.EditorInfo.IME_ACTION_SEND
+            addTextChangedListener(object:TextWatcher {
+                override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int){}
+                override fun onTextChanged(s:CharSequence?,start:Int,before:Int,count:Int){assistantDraft=s?.toString().orEmpty()}
+                override fun afterTextChanged(s:Editable?){}
+            })
         }
-        alert("Asistente · ${question.take(35)}",response)
+        fun send() {
+            val query=question.text.toString().trim()
+            if(query.isBlank())toast("Escribe una pregunta para comenzar") else {
+                (getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(question.windowToken,0)
+                askAssistant(query)
+            }
+        }
+        question.setOnEditorActionListener {_,action,_ -> if(action==android.view.inputmethod.EditorInfo.IME_ACTION_SEND){send();true}else false}
+        addView(question,LinearLayout.LayoutParams(0,-2,1f));addView(View(this@MainActivity),LinearLayout.LayoutParams(dp(10),1))
+        addView(iconBubble("send",Color.WHITE,green,48).apply {
+            importantForAccessibility=View.IMPORTANT_FOR_ACCESSIBILITY_YES;contentDescription="Consultar mis finanzas";touch(this){send()}
+        })
+    }
+    private fun askAssistant(question:String) {
+        assistantDraft=""
+        assistantQuestions.add(question.take(200))
+        if(assistantQuestions.size>8)assistantQuestions.removeAt(0)
+        scrollToConversation=true;render()
+    }
+    private fun analysisReply(question:String):String {
+        val q=BankParser.fold(question)
+        val month=FinanceAnalysis.questionMonth(question,selectedMonth)
+        val report=db.monthReport(month);val cats=db.monthCategories(month)
+        val title=monthLabel(month)
+        val pending=if(report.pendingCount>0)"\n\n${report.pendingCount} ${if(report.pendingCount==1L)"movimiento por revisar puede" else "movimientos por revisar pueden"} cambiar este análisis." else ""
+        val category=categories.firstOrNull{BankParser.fold(it) in q} ?: if("cine" in q)"Entretenimiento" else null
+        val answer=when {
+            q.contains("compar")||q.contains("cambio")||q.contains("diferencia") -> {
+                val prev=YearMonth.parse(month).minusMonths(1).toString();val prior=db.monthReport(prev)
+                if(report.count==0L||prior.count==0L)"No hay registros suficientes en ambos meses para comparar $title con ${monthLabel(prev)}."
+                else {
+                    val difference=report.expenses-prior.expenses
+                    "$title frente a ${monthLabel(prev)}\n\nGasto neto: ${money(report.expenses)}\nGasto anterior: ${money(prior.expenses)}\nDiferencia: ${if(difference>=0)"+" else "−"}${money(kotlin.math.abs(difference))}"+
+                        (if(!amountsHidden())ReportMath.changePercent(report.expenses,prior.expenses)?.let{" ($it)"}.orEmpty() else "")+
+                        if(month==FinanceDb.ym())"\n\nEl mes actual está en curso y el anterior es un mes completo; la comparación tiene distinta duración." else ""
+                }
+            }
+            q.contains("presupuest")||q.contains("limite") -> {
+                val budgets=db.budgets()
+                if(budgets.isEmpty())"Todavía no tienes límites por categoría. Puedes crearlos en Presupuestos."
+                else "Límites actuales aplicados a $title:\n\n"+budgets.joinToString("\n\n") {
+                    val spent=cats.firstOrNull{c->c.first==it.category}?.second?:0L;val left=it.cents-spent
+                    "${it.category}: ${money(spent)} de ${money(it.cents)}. "+if(left<0)"Exceso ${money(-left)}." else "Margen ${money(left)}."
+                }+"\n\nLos límites no tienen historial de versiones; se usan los que tienes definidos hoy."
+            }
+            q.contains("pago")||q.contains("pagar")||q.contains("debo") -> {
+                if(month!=FinanceDb.ym())"Los recordatorios solo conservan su estado de pago más reciente. Consulta Pagos para revisar el mes actual; no puedo reconstruir obligaciones históricas."
+                else {
+                    val owed=db.bills().filter{it.paidYm!=FinanceDb.ym()}
+                    if(owed.isEmpty())"No hay pagos recurrentes marcados como pendientes este mes. Esto no descarta obligaciones que no hayas registrado."
+                    else "Pagos pendientes: ${money(owed.sumOf{it.cents})}\n\n"+owed.joinToString("\n"){"• Día ${it.day}: ${it.title} · ${money(it.cents)}"}+"\n\nMarcar un recordatorio como pagado no registra otro gasto."
+                }
+            }
+            q.contains("por revisar")||q.contains("pendiente") ->
+                "$title: ${report.pendingCount} movimientos por revisar.\n\nDébitos: ${money(report.pendingDebits)}\nAbonos: ${money(report.pendingCredits)}\n\nEstos importes están excluidos de los ingresos y gastos confirmados. Revísalos en Movimientos."
+            q.contains("mayor compra")||q.contains("mayor gasto")||q.contains("compra mas") -> {
+                val purchase=readModel.largestPurchase(month)
+                purchase?.let{"Mayor compra confirmada de $title:\n\n${it.first}\n${money(it.second)}\n\nSe compara cada compra individual, antes de descontar devoluciones."}?:"No hay compras confirmadas en $title."
+            }
+            q.contains("comercio") -> {
+                val merchants=readModel.topMerchants(month)
+                if(merchants.isEmpty())"No hay comercios con gasto neto positivo en $title."
+                else "Comercios con mayor gasto neto en $title:\n\n"+merchants.joinToString("\n"){"• ${it.first}: ${money(it.second)}"}+"\n\nAgrupados por el nombre registrado; las devoluciones se descuentan cuando usan ese mismo nombre."
+            }
+            category!=null -> {
+                val spent=cats.firstOrNull{it.first==category}?.second?:0L
+                "$category en $title: ${money(spent)} de gasto neto.\n\nIncluye compras menos devoluciones clasificadas en esa categoría. Los débitos sin confirmar quedan aparte."
+            }
+            q.contains("saldo")||q.contains("disponible")||q.contains("tengo") -> {
+                val all=db.accounts();val known=all.mapNotNull{db.accountBalance(it)};val missing=all.count{it.opening==null}
+                if(known.isEmpty())"No hay saldos reales configurados. Registra el saldo actual de cada cuenta en Cuentas; no se puede deducir tu saldo bancario a partir de SMS incompletos."
+                else "Saldo estimado conocido: ${money(known.sum())}."+(if(missing>0)"\n\nFaltan saldos de $missing cuenta(s); el total es parcial." else "")+"\n\nEs el saldo actual calculado desde tus puntos de partida, no un saldo histórico ni una consulta al banco."
+            }
+            q.contains("donde")||q.contains("categoria") -> {
+                if(cats.isEmpty())"No hay categorías de gasto registradas en $title."
+                else "Distribución de gasto neto en $title:\n\n"+cats.take(5).joinToString("\n"){"• ${it.first}: ${money(it.second)}"}
+            }
+            q.contains("ahorr") ->
+                "El balance confirmado de $title es ${money(report.income-report.expenses)}: ingresos menos gastos netos.\n\nEs un cálculo de registros, no una cantidad garantizada para ahorrar. Usa Simular un ahorro para explorar un monto sin cambiar tus datos."
+            else -> {
+                val largest=cats.firstOrNull{it.second>0}
+                "$title\n\nIngresos confirmados: ${money(report.income)}\nGastos netos: ${money(report.expenses)}\nBalance del mes: ${money(report.income-report.expenses)}\nDevoluciones: ${money(report.refunds)}"+
+                    (largest?.let{"\n\nCategoría principal: ${it.first}, ${money(it.second)}."}?:"\n\nSin categorías con gasto neto positivo.")+"\n\nPuedes preguntar por comercios, categorías, presupuestos, pagos, tu mayor compra o comparar meses. También puedes indicar un mes, como septiembre 2026."
+            }
+        }
+        return answer+pending
+    }
+    private fun savingsSimulation() {
+        val amount=edit("Monto que quieres apartar en Q",numeric=true)
+        AlertDialog.Builder(this).setTitle("Simular un ahorro")
+            .setMessage("Se calcula sobre el balance confirmado de ${monthLabel(selectedMonth)}. No modifica cuentas ni movimientos.")
+            .setView(block(amount)).setNegativeButton("Cancelar",null).setPositiveButton("Simular"){_,_->
+                val target=FinanceDb.parseAmount(amount.text.toString())
+                if(target==null||target<=0){toast("Escribe un monto mayor que cero");return@setPositiveButton}
+                val r=db.monthReport(selectedMonth);val balance=r.income-r.expenses
+                alert("Tu escenario","Balance confirmado: ${money(balance)}\nMonto a apartar: ${money(target)}\nResultado aritmético: ${money(balance-target)}\n\nEsto no verifica disponibilidad bancaria ni descuenta obligaciones futuras o movimientos pendientes. No se guardó ningún cambio.")
+            }.show()
     }
 }

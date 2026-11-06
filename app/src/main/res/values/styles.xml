@@ -2,9 +2,9 @@
   <style name="Theme.MisFinanzas.Base" parent="android:style/Theme.Material.Light.NoActionBar">
     <item name="android:fontFamily">sans</item>
     <item name="android:windowLightStatusBar">true</item>
-    <item name="android:statusBarColor">#F6F9F8</item>
-    <item name="android:navigationBarColor">#F6F9F8</item>
-    <item name="android:colorAccent">#007752</item>
+    <item name="android:statusBarColor">#F4F6FA</item>
+    <item name="android:navigationBarColor">#FFFFFF</item>
+    <item name="android:colorAccent">#007E77</item>
     <item name="android:windowActionModeOverlay">true</item>
   </style>
   <style name="Theme.MisFinanzas" parent="Theme.MisFinanzas.Base" />

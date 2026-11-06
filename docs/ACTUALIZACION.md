@@ -2,22 +2,24 @@
 
 ## Antes de instalar
 
-1. En la app actual, abre **Cuentas → Guardar / recuperar copia de seguridad**.
+1. En la app actual, abre **Cuentas → Respaldo** (en versiones anteriores: **Guardar / recuperar copia de seguridad**).
 2. Guarda el JSON en una ubicación privada. Contiene información financiera en texto plano; no lo adjuntes a GitHub ni lo compartas en incidencias.
 3. Conserva la instalación actual. **No desinstales, no borres almacenamiento y no uses `adb uninstall` ni `pm clear`.**
 
-## Compatibilidad de 0.4.0
+## Compatibilidad de 0.5.0
 
 | Propiedad | Valor |
 | --- | --- |
 | Identificador Android | `gt.finanzas.privadas` |
 | Base de datos | `mis_finanzas.db` |
 | Versión del esquema SQLite | `1`, sin migraciones |
-| VersionCode | `6` (anterior: `5`) |
-| VersionName | `0.4.0` |
+| VersionCode | `7` (anterior: `6`) |
+| VersionName | `0.5.0` |
 | Formato de respaldo | `mis-finanzas-private-v1`, sin cambios |
 
 La actualización modifica la presentación y agrega preferencias de visualización. No ejecuta reclasificaciones, importaciones ni restauraciones automáticas nuevas. Se mantiene la sincronización ya elegida por la persona, que puede importar SMS al abrir la app si estaba activada.
+
+La navegación principal ahora incluye **Asistente** y llama **Reportes** a la sección mensual. Las herramientas, pagos, presupuestos e importación están disponibles mediante el icono de ajustes de la cabecera. El asistente y las nuevas gráficas solo leen registros; sus simulaciones no modifican saldos.
 
 La instalación debe usar **el mismo certificado que la app existente**. La firma de depuración depende del equipo/perfil de Android Studio. Una compilación de otro equipo o de GitHub Actions tendrá normalmente una firma diferente y no servirá para actualizar esta instalación.
 
